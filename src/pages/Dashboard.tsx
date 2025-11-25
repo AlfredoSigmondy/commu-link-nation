@@ -53,7 +53,7 @@ const Dashboard = () => {
         <div className="grid lg:grid-cols-4 gap-6">
           {/* Sidebar Navigation */}
           <aside className="lg:col-span-1 space-y-2">
-            <Button variant="ghost" className="w-full justify-start" size="lg">
+            <Button variant="secondary" className="w-full justify-start" size="lg">
               <Home className="mr-2 h-5 w-5" />
               Home
             </Button>
@@ -83,6 +83,14 @@ const Dashboard = () => {
             >
               <Phone className="mr-2 h-5 w-5" />
               Contact Barangay
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start"
+              size="lg"
+              onClick={() => navigate('/profile')}
+            >
+              Profile
             </Button>
           </aside>
 
