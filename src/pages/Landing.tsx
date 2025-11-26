@@ -91,7 +91,7 @@ const Landing = () => {
       {/* Footer */}
       <footer className="py-8 bg-background border-t">
         <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <p>© 2024 Barangay Connect. All rights reserved.</p>
+          <p>© 2025 Community Match . All rights reserved.</p>
         </div>
       </footer>
     </div>;
