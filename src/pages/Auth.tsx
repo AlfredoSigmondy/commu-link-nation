@@ -18,11 +18,16 @@ import { Eye, EyeOff } from 'lucide-react';
 
 const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState({ login: false, signup: false, confirm: false });
+  const [showPassword, setShowPassword] = useState({
+    login: false,
+    signup: false,
+    confirm: false,
+  });
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // Redirect if already logged in
   useEffect(() => {
     if (user) navigate('/dashboard');
   }, [user, navigate]);
@@ -31,7 +36,6 @@ const Auth = () => {
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
-
     const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
@@ -47,11 +51,10 @@ const Auth = () => {
     setIsLoading(false);
   };
 
-  // FORGOT PASSWORD (already fixed for live URL)
+  // FORGOT PASSWORD – Fixed for live URL
   const handleForgotPassword = async (e: React.MouseEvent) => {
     e.preventDefault();
     const email = (document.getElementById('login-email') as HTMLInputElement)?.value?.trim();
-
     if (!email) return toast({ title: 'Email required', variant: 'destructive' });
 
     setIsLoading(true);
@@ -66,7 +69,7 @@ const Auth = () => {
     setIsLoading(false);
   };
 
-  // SIGN UP WITH PASSWORD + SAVE TO PROFILES TABLE
+  // SIGN UP – WITH EMAIL VERIFICATION + LIVE URL
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
@@ -79,9 +82,8 @@ const Auth = () => {
     const contactNumber = formData.get('contactNumber') as string;
     const address = formData.get('address') as string;
 
-    // Validation
     if (password.length < 6) {
-      toast({ title: 'Password too short', description: 'Use at least 6 characters.', variant: 'destructive' });
+      toast({ title: 'Weak password', description: 'Use at least 6 characters.', variant: 'destructive' });
       setIsLoading(false);
       return;
     }
@@ -95,6 +97,7 @@ const Auth = () => {
       email,
       password,
       options: {
+        // This is the fix: uses your live URL, never localhost
         emailRedirectTo: `${window.location.origin}/dashboard`,
         data: {
           full_name: fullName,
@@ -107,7 +110,7 @@ const Auth = () => {
     if (error) {
       toast({ title: 'Sign up failed', description: error.message, variant: 'destructive' });
     } else if (data.user) {
-      // Auto-save extra info to profiles table (optional but recommended)
+      // Save profile data
       await supabase.from('profiles').upsert({
         id: data.user.id,
         full_name: fullName,
@@ -117,10 +120,10 @@ const Auth = () => {
       });
 
       toast({
-        title: 'Success!',
-        description: 'Account created! You are now logged in.',
+        title: 'Almost there!',
+        description: 'Check your email and click the verification link to activate your account.',
       });
-      navigate('/dashboard');
+      // Do NOT auto-login — wait for email confirmation
     }
 
     setIsLoading(false);
@@ -133,7 +136,9 @@ const Auth = () => {
           <CardTitle className="text-2xl text-center bg-gradient-hero bg-clip-text text-transparent">
             Community Match
           </CardTitle>
-          <CardDescription className="text-center">Join your community platform</CardDescription>
+          <CardDescription className="text-center">
+            Create an account or log in
+          </CardDescription>
         </CardHeader>
 
         <CardContent>
@@ -143,7 +148,7 @@ const Auth = () => {
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
             </TabsList>
 
-            {/* ==================== LOGIN ==================== */}
+            {/* LOGIN */}
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
@@ -164,7 +169,7 @@ const Auth = () => {
                     <button
                       type="button"
                       onClick={() => setShowPassword({ ...showPassword, login: !showPassword.login })}
-                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword.login ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -181,7 +186,7 @@ const Auth = () => {
               </form>
             </TabsContent>
 
-            {/* ==================== SIGN UP WITH PASSWORD ==================== */}
+            {/* SIGN UP WITH PASSWORD + EMAIL VERIFICATION */}
             <TabsContent value="signup">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
@@ -207,7 +212,7 @@ const Auth = () => {
                     <button
                       type="button"
                       onClick={() => setShowPassword({ ...showPassword, signup: !showPassword.signup })}
-                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword.signup ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -227,7 +232,7 @@ const Auth = () => {
                     <button
                       type="button"
                       onClick={() => setShowPassword({ ...showPassword, confirm: !showPassword.confirm })}
-                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showPassword.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -247,6 +252,10 @@ const Auth = () => {
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Creating account...' : 'Create Account'}
                 </Button>
+
+                <p className="text-xs text-center text-muted-foreground">
+                  You will receive an email to verify your account.
+                </p>
               </form>
             </TabsContent>
           </Tabs>
