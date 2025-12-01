@@ -18,6 +18,17 @@ import ResetPassword from "./pages/ResetPassword";
 
 const queryClient = new QueryClient();
 
+export const metadata = {
+  title: "CommuLink Nation",
+  description: "Your community social app",
+  openGraph: {
+    images: ["/preview.png"],  // ← this removes the Vercel logo forever
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/preview.png"],
+  },
+};
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
