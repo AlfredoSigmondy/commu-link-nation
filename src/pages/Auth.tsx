@@ -18,18 +18,16 @@ import { Eye, EyeOff } from 'lucide-react';
 
 const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState({ login: false, signup: false, confirm: false });
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
-    }
+    if (user) navigate('/dashboard');
   }, [user, navigate]);
 
-  // Login with Email + Password
+  // LOGIN
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
@@ -38,92 +36,93 @@ const Auth = () => {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      toast({
-        title: 'Login failed',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Login failed', description: error.message, variant: 'destructive' });
     } else {
-      toast({
-        title: 'Welcome back!',
-        description: 'You are now logged in.',
-      });
+      toast({ title: 'Welcome back!' });
       navigate('/dashboard');
     }
     setIsLoading(false);
   };
 
-  // Forgot Password
+  // FORGOT PASSWORD (already fixed for live URL)
   const handleForgotPassword = async (e: React.MouseEvent) => {
     e.preventDefault();
-    const email = (document.getElementById('login-email') as HTMLInputElement)?.value;
+    const email = (document.getElementById('login-email') as HTMLInputElement)?.value?.trim();
 
-    if (!email) {
-      toast({
-        title: 'Email required',
-        description: 'Please enter your email address first.',
-        variant: 'destructive',
-      });
-      return;
-    }
+    if (!email) return toast({ title: 'Email required', variant: 'destructive' });
 
     setIsLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
 
-    if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } else {
-      toast({
-        title: 'Check your email',
-        description: 'We sent you a password reset link.',
-      });
-    }
+    error
+      ? toast({ title: 'Error', description: error.message, variant: 'destructive' })
+      : toast({ title: 'Check your email!', description: 'Password reset link sent.' });
+
     setIsLoading(false);
   };
 
-  // Sign-up (still using magic link — you can switch to password later)
+  // SIGN UP WITH PASSWORD + SAVE TO PROFILES TABLE
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const confirmPassword = formData.get('confirmPassword') as string;
     const fullName = formData.get('fullName') as string;
     const contactNumber = formData.get('contactNumber') as string;
     const address = formData.get('address') as string;
 
-    const { error } = await supabase.auth.signInWithOtp({
+    // Validation
+    if (password.length < 6) {
+      toast({ title: 'Password too short', description: 'Use at least 6 characters.', variant: 'destructive' });
+      setIsLoading(false);
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast({ title: 'Passwords do not match', variant: 'destructive' });
+      setIsLoading(false);
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email,
+      password,
       options: {
         emailRedirectTo: `${window.location.origin}/dashboard`,
-        data: { full_name: fullName, contact_number: contactNumber, address },
+        data: {
+          full_name: fullName,
+          contact_number: contactNumber,
+          address: address,
+        },
       },
     });
 
     if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
+      toast({ title: 'Sign up failed', description: error.message, variant: 'destructive' });
+    } else if (data.user) {
+      // Auto-save extra info to profiles table (optional but recommended)
+      await supabase.from('profiles').upsert({
+        id: data.user.id,
+        full_name: fullName,
+        contact_number: contactNumber,
+        address: address,
+        updated_at: new Date().toISOString(),
       });
-    } else {
+
       toast({
-        title: 'Check your email!',
-        description: 'We sent you a verification code.',
+        title: 'Success!',
+        description: 'Account created! You are now logged in.',
       });
+      navigate('/dashboard');
     }
+
     setIsLoading(false);
   };
 
@@ -134,9 +133,7 @@ const Auth = () => {
           <CardTitle className="text-2xl text-center bg-gradient-hero bg-clip-text text-transparent">
             Community Match
           </CardTitle>
-          <CardDescription className="text-center">
-            Join your community platform
-          </CardDescription>
+          <CardDescription className="text-center">Join your community platform</CardDescription>
         </CardHeader>
 
         <CardContent>
@@ -146,18 +143,12 @@ const Auth = () => {
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
             </TabsList>
 
-            {/* ==================== LOGIN WITH PASSWORD ==================== */}
+            {/* ==================== LOGIN ==================== */}
             <TabsContent value="login">
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="login-email">Email</Label>
-                  <Input
-                    id="login-email"
-                    name="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    required
-                  />
+                  <Input id="login-email" name="email" type="email" placeholder="your@email.com" required />
                 </div>
 
                 <div className="space-y-2">
@@ -166,31 +157,23 @@ const Auth = () => {
                     <Input
                       id="login-password"
                       name="password"
-                      type={showPassword ? 'text' : 'password'}
+                      type={showPassword.login ? 'text' : 'password'}
                       placeholder="••••••••"
                       required
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowPassword({ ...showPassword, login: !showPassword.login })}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {showPassword.login ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="px-0 font-normal text-sm"
-                    onClick={handleForgotPassword}
-                    disabled={isLoading}
-                  >
-                    Forgot password?
-                  </Button>
-                </div>
+                <Button type="button" variant="link" onClick={handleForgotPassword} disabled={isLoading}>
+                  Forgot password?
+                </Button>
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Signing in...' : 'Log In'}
@@ -198,58 +181,72 @@ const Auth = () => {
               </form>
             </TabsContent>
 
-            {/* ==================== SIGN UP ==================== */}
+            {/* ==================== SIGN UP WITH PASSWORD ==================== */}
             <TabsContent value="signup">
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="signup-name">Full Name</Label>
-                  <Input
-                    id="signup-name"
-                    name="fullName"
-                    type="text"
-                    placeholder="Juan Dela Cruz"
-                    required
-                  />
+                  <Input id="signup-name" name="fullName" type="text" placeholder="Juan Dela Cruz" required />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    name="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    required
-                  />
+                  <Input id="signup-email" name="email" type="email" placeholder="your@email.com" required />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="signup-contact">Contact Number</Label>
-                  <Input
-                    id="signup-contact"
-                    name="contactNumber"
-                    type="tel"
-                    placeholder="09XX XXX XXXX"
-                  />
+                  <Label htmlFor="signup-password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="signup-password"
+                      name="password"
+                      type={showPassword.signup ? 'text' : 'password'}
+                      placeholder="Create a strong password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword({ ...showPassword, signup: !showPassword.signup })}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                    >
+                      {showPassword.signup ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="signup-address">Address</Label>
-                  <Input
-                    id="signup-address"
-                    name="address"
-                    type="text"
-                    placeholder="Your complete address"
-                  />
+                  <Label htmlFor="signup-confirm">Confirm Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="signup-confirm"
+                      name="confirmPassword"
+                      type={showPassword.confirm ? 'text' : 'password'}
+                      placeholder="Type password again"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword({ ...showPassword, confirm: !showPassword.confirm })}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                    >
+                      {showPassword.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-contact">Contact Number (optional)</Label>
+                  <Input id="signup-contact" name="contactNumber" type="tel" placeholder="09XX XXX XXXX" />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-address">Address (optional)</Label>
+                  <Input id="signup-address" name="address" type="text" placeholder="Your complete address" />
                 </div>
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? 'Sending code...' : 'Send Verification Code'}
+                  {isLoading ? 'Creating account...' : 'Create Account'}
                 </Button>
-
-                <p className="text-sm text-muted-foreground text-center">
-                  We'll send a one-time code to verify your email
-                </p>
               </form>
             </TabsContent>
           </Tabs>
