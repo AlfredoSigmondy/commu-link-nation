@@ -9,7 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, UserPlus, Check, X, Users, Sparkles } from 'lucide-react';
+import { ArrowLeft, UserPlus, Check, X, Users, Sparkles, Home, LogOut } from 'lucide-react';
+import { SignOutDialog } from '@/components/SignOutDialog';
+import { NotificationBell } from '@/components/NotificationBell';
 
 interface Profile {
   id: string;
@@ -26,7 +28,7 @@ interface Friendship {
 }
 
 const Friends = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -35,7 +37,9 @@ const Friends = () => {
   const [friends, setFriends] = useState<Friendship[]>([]);
   const [pendingRequests, setPendingRequests] = useState<Friendship[]>([]);
   const [suggestions, setSuggestions] = useState<Profile[]>([]);
+  const [showSignOutDialog, setShowSignOutDialog] = useState(false);
 
+  // Fetch initial data and set up real-time subscriptions
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
@@ -46,14 +50,12 @@ const Friends = () => {
     if (user) {
       fetchFriends();
       fetchPendingRequests();
-      fetchSuggestions();
 
       const channel = supabase
         .channel('friendships-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships' }, () => {
           fetchFriends();
           fetchPendingRequests();
-          fetchSuggestions();
         })
         .subscribe();
 
@@ -63,6 +65,7 @@ const Friends = () => {
     }
   }, [user]);
 
+  // Fetch friends
   const fetchFriends = async () => {
     const { data, error } = await supabase
       .from('friendships')
@@ -84,6 +87,7 @@ const Friends = () => {
     setFriends(data as Friendship[]);
   };
 
+  // Fetch pending requests sent to user
   const fetchPendingRequests = async () => {
     const { data, error } = await supabase
       .from('friendships')
@@ -105,11 +109,10 @@ const Friends = () => {
     setPendingRequests(data as Friendship[]);
   };
 
-  // FIXED: Now 100% excludes ALL existing connections
+  // Fetch suggestions excluding current friends and pending requests
   const fetchSuggestions = async () => {
     if (!user?.id) return;
 
-    // Get all outgoing pending requests (you sent)
     const { data: outgoing } = await supabase
       .from('friendships')
       .select('friend_id')
@@ -118,18 +121,14 @@ const Friends = () => {
 
     const outgoingIds = outgoing?.map(o => o.friend_id) || [];
 
-    // Get all incoming pending requests (sent to you)
     const incomingIds = pendingRequests.map(r => r.user_id);
-
-    // Get all accepted friends
     const friendIds = friends.map(f => f.friend_id);
 
-    // Final list of IDs to EXCLUDE
     const excludeIds = new Set([
-      user.id,                    // never suggest yourself
-      ...friendIds,               // accepted friends
-      ...incomingIds,             // people who sent you requests
-      ...outgoingIds,             // people you sent requests to
+      user.id,
+      ...friendIds,
+      ...incomingIds,
+      ...outgoingIds,
     ]);
 
     const { data, error } = await supabase
@@ -145,6 +144,11 @@ const Friends = () => {
 
     setSuggestions(data || []);
   };
+
+  // Trigger fetchSuggestions whenever friends or pendingRequests change
+  useEffect(() => {
+    fetchSuggestions();
+  }, [friends, pendingRequests]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -181,7 +185,7 @@ const Friends = () => {
 
       setSearchResults([]);
       setSearchQuery('');
-      fetchSuggestions(); // Instantly removes from suggestions
+      fetchSuggestions();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -226,7 +230,24 @@ const Friends = () => {
       if (error) throw error;
 
       toast({ title: 'Request rejected' });
-      fetchSuggestions();
+      fetchPendingRequests();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // New function to remove incoming requests
+  const handleRemoveRequest = async (requestId: string) => {
+    try {
+      const { error } = await supabase.from('friendships').delete().eq('id', requestId);
+      if (error) throw error;
+
+      toast({ title: 'Friend request removed' });
+      fetchPendingRequests(); // Refresh the list
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -254,7 +275,7 @@ const Friends = () => {
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-12 sm:h-16">
             <div className="flex items-center gap-2 sm:gap-4">
-              <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="hover:bg-teal-50 rounded-xl h-9 w-9">
+              <Button variant="ghost" size="icon" onClick={() => navigate('/dashboard')} className="hover:bg-teal-50 rounded-xl h-9 w-9">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <h1 className="text-lg sm:text-2xl font-bold text-[#2ec2b3] flex items-center gap-2">
@@ -262,9 +283,22 @@ const Friends = () => {
                 <span className="hidden sm:inline">Friends</span>
               </h1>
             </div>
+            <div className="flex items-center gap-2">
+              <NotificationBell />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors h-9 w-9"
+                onClick={() => setShowSignOutDialog(true)}
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </header>
+
+      <SignOutDialog open={showSignOutDialog} onOpenChange={setShowSignOutDialog} />
 
       <main className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
         {/* People You May Know */}
@@ -303,7 +337,7 @@ const Friends = () => {
 
         {/* Main Tabs */}
         <Tabs defaultValue="friends" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4 sm:mb-6 bg-white rounded-xl shadow h-auto p-1">
+          <TabsList className="grid w-full grid-cols-4 mb-4 sm:mb-6 bg-white rounded-xl shadow h-auto p-1">
             <TabsTrigger value="friends" className="data-[state=active]:bg-[#2ec2b3] data-[state=active]:text-white rounded-lg text-xs sm:text-sm py-2">
               Friends <Badge className="ml-1 bg-white/20 text-xs hidden sm:inline">{friends.length}</Badge>
             </TabsTrigger>
@@ -313,6 +347,9 @@ const Friends = () => {
             </TabsTrigger>
             <TabsTrigger value="add" className="data-[state=active]:bg-[#2ec2b3] data-[state=active]:text-white rounded-lg text-xs sm:text-sm py-2">
               Add
+            </TabsTrigger>
+            <TabsTrigger value="received" className="data-[state=active]:bg-[#2ec2b3] data-[state=active]:text-white rounded-lg text-xs sm:text-sm py-2">
+              Received Requests
             </TabsTrigger>
           </TabsList>
 
@@ -348,7 +385,7 @@ const Friends = () => {
             </Card>
           </TabsContent>
 
-          {/* Requests */}
+          {/* Requests - outgoing requests sent by user */}
           <TabsContent value="requests">
             <Card>
               <CardHeader className="p-3 sm:p-6">
@@ -368,9 +405,10 @@ const Friends = () => {
                         <span className="font-semibold text-sm truncate">{request.profiles.full_name}</span>
                       </div>
                       <div className="flex gap-1.5">
-                        <Button size="icon" onClick={() => handleAcceptRequest(request.id)} className="bg-[#2ec2b3] hover:bg-[#28a399] h-8 w-8">
+                        {/* You could add Accept button here if needed */}
+                        {/* <Button size="icon" onClick={() => handleAcceptRequest(request.id)} className="bg-[#2ec2b3] hover:bg-[#28a399] h-8 w-8">
                           <Check className="h-4 w-4" />
-                        </Button>
+                        </Button> */}
                         <Button size="icon" variant="outline" onClick={() => handleRejectRequest(request.id)} className="h-8 w-8">
                           <X className="h-4 w-4" />
                         </Button>
@@ -382,7 +420,7 @@ const Friends = () => {
             </Card>
           </TabsContent>
 
-          {/* Add Friends */}
+          {/* Add Friends - search */}
           <TabsContent value="add">
             <Card>
               <CardHeader className="p-3 sm:p-6">
@@ -420,6 +458,45 @@ const Friends = () => {
                       </div>
                     ))}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Received Requests - new tab */}
+          <TabsContent value="received">
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Incoming Friend Requests</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 sm:space-y-3 p-3 sm:p-6 pt-0 sm:pt-0">
+                {pendingRequests.length === 0 ? (
+                  <p className="text-center py-10 sm:py-16 text-gray-500 text-sm">No incoming requests</p>
+                ) : (
+                  pendingRequests.map((request) => (
+                    <div key={request.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+                        <Avatar className="h-10 w-10 flex-shrink-0">
+                          <AvatarImage src={request.profiles.avatar_url || ''} />
+                          <AvatarFallback className="bg-gray-300 text-gray-700 text-sm">{request.profiles.full_name[0]}</AvatarFallback>
+                        </Avatar>
+                        <span className="font-semibold text-sm truncate">{request.profiles.full_name}</span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        {/* Optional: Accept button */}
+                        {/* <Button size="icon" onClick={() => handleAcceptRequest(request.id)} className="bg-[#2ec2b3] hover:bg-[#28a399] h-8 w-8">
+                          <Check className="h-4 w-4" />
+                        </Button> */}
+                        <Button
+                          size="icon"
+                          onClick={() => handleRemoveRequest(request.id)}
+                          className="bg-red-500 hover:bg-red-600 h-8 w-8"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))
                 )}
               </CardContent>
             </Card>

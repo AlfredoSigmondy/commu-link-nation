@@ -12,7 +12,6 @@ import { useToast } from '@/hooks/use-toast';
 import { 
   ArrowLeft, 
   Send, 
-  UserPlus, 
   Image as ImageIcon, 
   Video as VideoIcon, 
   MessageCircle,
@@ -197,13 +196,24 @@ const Messages = () => {
     if ((!newMessage.trim() && !mediaFile) || !selectedFriend) return;
 
     const tempId = Date.now().toString();
+    
+    // Prepare media info for temp message
+    let tempMediaType = null;
+    let tempMediaUrl = null;
+    
+    if (mediaFile) {
+      tempMediaType = mediaFile.type.startsWith('image/') ? 'image' : 'video';
+      // Create a preview URL for immediate display
+      tempMediaUrl = URL.createObjectURL(mediaFile);
+    }
+
     const tempMessage: Message = {
       id: tempId,
       sender_id: user!.id,
       receiver_id: selectedFriend.profiles.id,
-      content: newMessage.trim() || null,
-      media_url: null,
-      media_type: null,
+      content: newMessage.trim() || (mediaFile ? '[Media]' : ''),
+      media_url: tempMediaUrl,
+      media_type: tempMediaType,
       created_at: new Date().toISOString(),
       delivered_at: null,
       isSending: true,
@@ -212,6 +222,7 @@ const Messages = () => {
     // Optimistically add message
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
+    const fileToUpload = mediaFile;
     setMediaFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
@@ -219,10 +230,12 @@ const Messages = () => {
       let mediaUrl = null;
       let mediaType = null;
 
-      if (mediaFile) {
-        mediaUrl = await uploadMedia(mediaFile);
+      if (fileToUpload) {
+        mediaUrl = await uploadMedia(fileToUpload);
         if (!mediaUrl) throw new Error('Upload failed');
-        mediaType = mediaFile.type.startsWith('image/') ? 'image' : 'video';
+        mediaType = fileToUpload.type.startsWith('image/') ? 'image' : 'video';
+        // Clean up blob URL
+        if (tempMediaUrl) URL.revokeObjectURL(tempMediaUrl);
       }
 
       const { data, error } = await supabase
@@ -230,7 +243,7 @@ const Messages = () => {
         .insert({
           sender_id: user?.id,
           receiver_id: selectedFriend.profiles.id,
-          content: newMessage.trim() || null,
+          content: newMessage.trim() || (mediaUrl ? '[Media]' : ''),
           media_url: mediaUrl,
           media_type: mediaType,
         })
@@ -243,6 +256,8 @@ const Messages = () => {
       setMessages(prev => [...prev.filter(m => m.id !== tempId), data]);
     } catch (err: any) {
       toast({ title: 'Failed to send', description: err.message, variant: 'destructive' });
+      // Clean up blob URL on error
+      if (tempMediaUrl) URL.revokeObjectURL(tempMediaUrl);
       setMessages(prev => prev.filter(m => m.id !== tempId));
     }
   };
@@ -277,10 +292,6 @@ const Messages = () => {
               <span className="hidden sm:inline">Messages</span>
             </h1>
           </div>
-          <Button onClick={() => navigate('/friends')} size="sm" className="bg-[#2ec2b3] hover:bg-[#28a399] text-xs sm:text-sm">
-            <UserPlus className="h-4 w-4 sm:mr-2" />
-            <span className="hidden sm:inline">Manage Friends</span>
-          </Button>
         </div>
       </header>
 

@@ -69,3 +69,4 @@ USING (
   bucket_id = 'approach-media' AND
   has_role(auth.uid(), 'admin'::app_role)
 );
+

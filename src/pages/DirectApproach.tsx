@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Send, Image, Video } from 'lucide-react';
+import { ArrowLeft, Send, Image, Video, Phone } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ApproachConversation } from '@/components/ApproachConversation';
 
@@ -35,6 +35,33 @@ const DirectApproach = () => {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // CHANGE THIS TO YOUR BARANGAY'S ACTUAL EMERGENCY HOTLINE
+  const EMERGENCY_HOTLINE = "09123456789"; // Update this number!
+
+  const handleEmergencyCall = () => {
+    window.location.href = `tel:${EMERGENCY_HOTLINE}`;
+    toast({
+      title: "Emergency Call",
+      description: `Dialing Barangay Hotline: ${EMERGENCY_HOTLINE}`,
+      duration: 5000,
+    });
+  };
+
+  const fetchApproaches = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('direct_approaches')
+      .select('*')
+      .eq('user_id', user?.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching approaches:', error);
+      return;
+    }
+
+    setApproaches(data || []);
+  }, [user?.id]);
+
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
@@ -56,22 +83,7 @@ const DirectApproach = () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [user]);
-
-  const fetchApproaches = async () => {
-    const { data, error } = await supabase
-      .from('direct_approaches')
-      .select('*')
-      .eq('user_id', user?.id)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching approaches:', error);
-      return;
-    }
-
-    setApproaches(data);
-  };
+  }, [user, fetchApproaches]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,10 +129,10 @@ const DirectApproach = () => {
         .getPublicUrl(fileName);
 
       return publicUrl;
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: 'Upload Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Upload failed',
         variant: 'destructive',
       });
       return null;
@@ -167,13 +179,11 @@ const DirectApproach = () => {
       });
       setShowForm(false);
       setMediaFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    } catch (error: any) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (error) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Failed to send message',
         variant: 'destructive',
       });
     } finally {
@@ -183,16 +193,11 @@ const DirectApproach = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'open':
-        return 'bg-accent';
-      case 'in_progress':
-        return 'bg-secondary';
-      case 'resolved':
-        return 'bg-primary';
-      case 'closed':
-        return 'bg-muted';
-      default:
-        return 'bg-muted';
+      case 'open': return 'bg-accent';
+      case 'in_progress': return 'bg-secondary';
+      case 'resolved': return 'bg-primary';
+      case 'closed': return 'bg-muted';
+      default: return 'bg-muted';
     }
   };
 
@@ -210,7 +215,7 @@ const DirectApproach = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-cyan-50 pb-20 md:pb-8">
       <header className="bg-white/95 backdrop-blur-md border-b border-gray-100 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-4">
               <Button variant="ghost" size="icon" onClick={() => navigate('/dashboard')} className="h-9 w-9">
@@ -218,10 +223,30 @@ const DirectApproach = () => {
               </Button>
               <h1 className="text-lg sm:text-2xl font-bold text-[#2ec2b3]">Contact Barangay</h1>
             </div>
-            <Button onClick={() => setShowForm(!showForm)} size="sm" className="text-xs sm:text-sm">
-              <Send className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">{showForm ? 'Cancel' : 'New Request'}</span>
-            </Button>
+
+            {/* Right-side buttons - fully responsive */}
+            <div className="flex items-center gap-2">
+              {/* Emergency Call Button */}
+              <Button
+                onClick={handleEmergencyCall}
+                className="bg-red-600 hover:bg-red-700 text-white font-medium h-9 px-3 sm:px-4 flex items-center gap-1.5"
+              >
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                <span className="hidden xs:inline">Emergency Call</span>
+                <span className="xs:hidden">Emergency Call</span>
+              </Button>
+
+              {/* New Request Button */}
+              <Button
+                onClick={() => setShowForm(!showForm)}
+                size="sm"
+                className="h-9 px-3 text-xs sm:text-sm"
+              >
+                <Send className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">{showForm ? 'Cancel' : 'New Request'}</span>
+                <span className="sm:hidden">{showForm ? 'Cancel' : 'New'}</span>
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -235,7 +260,7 @@ const DirectApproach = () => {
                 Contact barangay officials for assistance or concerns
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-3 sm:p-6 pt-0 sm:pt-0">
+            <CardContent className="p-3 sm:p-6 pt-0">
               <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="subject" className="text-sm">Subject</Label>
@@ -253,12 +278,15 @@ const DirectApproach = () => {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm">Attach Media (Optional)</Label>
-                  <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFileSelect} className="hidden" />
+                  <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFileSelect} className="hidden" aria-label="Select media file" />
                   {mediaFile ? (
                     <div className="flex items-center gap-2 p-2.5 bg-muted rounded-lg">
                       {mediaFile.type.startsWith('image/') ? <Image className="h-4 w-4 text-muted-foreground" /> : <Video className="h-4 w-4 text-muted-foreground" />}
                       <span className="flex-1 truncate text-xs sm:text-sm">{mediaFile.name}</span>
-                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setMediaFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => {
+                        setMediaFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}>
                         Remove
                       </Button>
                     </div>
@@ -300,7 +328,7 @@ const DirectApproach = () => {
                     </Badge>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-6 pt-0 sm:pt-0">
+                <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-6 pt-0">
                   <div>
                     <p className="text-xs font-medium mb-1">Your Request:</p>
                     <p className="text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap">{approach.message}</p>

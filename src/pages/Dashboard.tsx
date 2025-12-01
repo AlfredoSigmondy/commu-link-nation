@@ -9,6 +9,7 @@ import {
   MessageCircle, 
   Phone, 
   User,
+  Users,
   Shield 
 } from 'lucide-react';
 import CommunityFeed from '@/components/dashboard/CommunityFeed';
@@ -43,6 +44,7 @@ const Dashboard = () => {
     { icon: Home, label: 'Home', path: '/dashboard', active: true },
     { icon: ClipboardList, label: 'Tasks', path: '/tasks' },
     ...(!isAdmin ? [
+      { icon: Users, label: 'Friends', path: '/friends' },
       { icon: MessageCircle, label: 'Messages', path: '/messages' },
       { icon: Phone, label: 'Contact', path: '/direct-approach' },
     ] : []),
