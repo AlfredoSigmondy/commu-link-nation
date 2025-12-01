@@ -483,10 +483,9 @@ const Friends = () => {
                         <span className="font-semibold text-sm truncate">{request.profiles.full_name}</span>
                       </div>
                       <div className="flex gap-1.5">
-                        {/* Optional: Accept button */}
-                        {/* <Button size="icon" onClick={() => handleAcceptRequest(request.id)} className="bg-[#2ec2b3] hover:bg-[#28a399] h-8 w-8">
+                        { <Button size="icon" onClick={() => handleAcceptRequest(request.id)} className="bg-[#2ec2b3] hover:bg-[#28a399] h-8 w-8">
                           <Check className="h-4 w-4" />
-                        </Button> */}
+                        </Button> }
                         <Button
                           size="icon"
                           onClick={() => handleRemoveRequest(request.id)}
