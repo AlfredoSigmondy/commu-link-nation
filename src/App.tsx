@@ -27,20 +27,20 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <HMSRoomProvider>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/admin" element={<AdminDashboard />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/messages" element={<Messages />} />
-              <Route path="/friends" element={<Friends />} />
-              <Route path="/direct-approach" element={<DirectApproach />} />
-              <Route path="/profile" element={<Profile />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-            </Routes>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/messages" element={<Messages />} />
+            <Route path="/friends" element={<Friends />} />
+            <Route path="/direct-approach" element={<DirectApproach />} />
+            <Route path="/profile" element={<Profile />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+          </Routes>
           </HMSRoomProvider>
         </AuthProvider>
       </BrowserRouter>
