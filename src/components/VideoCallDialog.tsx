@@ -4,7 +4,6 @@ import DailyIframe from '@daily-co/daily-js';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Loader2, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
-import { useModernRingtone } from '@/hooks/useRingtone';
 
 interface Props {
   open: boolean;
@@ -29,10 +28,6 @@ export const VideoCallDialog = ({
   const [error, setError] = useState('');
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
-  const [isRinging, setIsRinging] = useState(false);
-
-  // Play ringtone while loading (calling state)
-  useModernRingtone(loading && open);
 
   const leaveCall = useCallback(() => {
     if (callFrameRef.current) {

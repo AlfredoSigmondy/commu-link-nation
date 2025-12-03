@@ -20,8 +20,6 @@ import {
   Clock
 } from 'lucide-react';
 import { VideoCallDialog } from '@/components/VideoCallDialog';
-import { IncomingCallNotification } from '@/components/IncomingCallNotification';
-import { useCallNotification } from '@/contexts/CallContext';
 import { format } from 'date-fns';
 
 interface Friend {
@@ -51,7 +49,6 @@ const Messages = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { incomingCall, removeCallNotification } = useCallNotification();
 
   const [friends, setFriends] = useState<Friend[]>([]);
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
@@ -60,7 +57,6 @@ const Messages = () => {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [videoCallOpen, setVideoCallOpen] = useState(false);
-  const [incomingCallOpen, setIncomingCallOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -346,41 +342,14 @@ const Messages = () => {
                     <Badge className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0">Online</Badge>
                   </div>
                 </div>
-                <Button 
-                  size="icon" 
-                  variant="outline" 
-                  className="h-8 w-8" 
-                  onClick={() => {
-                    setVideoCallOpen(true);
-                    // Simulate incoming call notification on the other end
-                    // In production, this would be via WebSocket/real-time events
-                  }}
-                >
+                <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => setVideoCallOpen(true)}>
                   <VideoIcon className="h-4 w-4" />
                 </Button>
               </div>
 
-              {/* Incoming call notification */}
-              {incomingCall && (
-                <IncomingCallNotification
-                  callerName={incomingCall.callerName}
-                  callerId={incomingCall.callerId}
-                  onAccept={() => {
-                    setIncomingCallOpen(true);
-                    removeCallNotification(incomingCall.id);
-                  }}
-                  onReject={() => {
-                    removeCallNotification(incomingCall.id);
-                  }}
-                />
-              )}
-
               <VideoCallDialog
-                  open={videoCallOpen || incomingCallOpen}
-                  onOpenChange={(open) => {
-                    setVideoCallOpen(open);
-                    setIncomingCallOpen(false);
-                  }}
+                  open={videoCallOpen}
+                  onOpenChange={setVideoCallOpen}
                   friendName={selectedFriend.profiles.full_name}
                   friendId={selectedFriend.profiles.id}
                   userId={user!.id}
