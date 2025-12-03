@@ -36,7 +36,7 @@ export function VideoCallDialog({
       const roomName = `call-${userId}-${friendId}-${Date.now()}`;
 
       try {
-        const res = await fetch('/myapi/create-daily-room', {
+        const res = await fetch('/api/create-daily-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
