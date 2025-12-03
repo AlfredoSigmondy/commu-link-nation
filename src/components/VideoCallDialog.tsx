@@ -36,7 +36,6 @@ export const VideoCallDialog = ({
       setError('');
 
       try {
-        // In VideoCallDialog.tsx, inside the `startCall` function:
         const res = await fetch('/api/create-daily-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -48,30 +47,27 @@ export const VideoCallDialog = ({
           }),
         });
 
-// NEW: Log raw response for debugging
-                console.log('API Status:', res.status);
-                console.log('API Headers:', [...res.headers.entries()]);
-                const rawText = await res.text();  // Get raw text first
-                console.log('Raw Response Body:', rawText);  // This will reveal HTML or error
+        // Debug: Log everything before parsing
+        console.log('API Response Status:', res.status);
+        console.log('API Response Headers:', Object.fromEntries(res.headers.entries()));
+        const rawText = await res.text();
+        console.log('Raw Response Body:', rawText);
 
-                if (!res.ok) {
-                  console.error('API Error Status:', res.status, 'Body:', rawText);
-                  throw new Error(`API failed: ${res.status} - ${rawText.substring(0, 200)}...`);  // Truncate for console
-                }
+        if (!res.ok) {
+          console.error('API failed with status:', res.status);
+          throw new Error(`Server error ${res.status}: ${rawText.substring(0, 200)}`);
+        }
 
-                let data;
-                try {
-                  data = JSON.parse(rawText);  // Parse manually after logging
-                } catch (parseErr) {
-                  console.error('JSON Parse Error:', parseErr);
-                  console.error('Failed to parse:', rawText.substring(0, 500));  // Show first 500 chars
-                  throw new Error('Invalid JSON from API: ' + rawText.substring(0, 200));
-                }
+        // Parse JSON safely
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (parseErr) {
+          console.error('Invalid JSON received:', rawText.substring(0, 500));
+          throw new Error('Invalid response from server (not JSON)');
+        }
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to start call');
-
-        // Create Daily call object
+        // Success: Create Daily.co call
         const callFrame = DailyIframe.createCallObject({
           url: data.url,
           token: data.token,
@@ -81,23 +77,18 @@ export const VideoCallDialog = ({
 
         callFrameRef.current = callFrame;
 
-        // Fix: Set iframe style safely
         const iframe = callFrame.iframe();
-        if (iframe) {
+        if (iframe && frameRef.current) {
           iframe.style.width = '100%';
           iframe.style.height = '100%';
           iframe.style.border = 'none';
-        }
-
-        // Append iframe to container
-        if (frameRef.current && iframe) {
           frameRef.current.appendChild(iframe);
         }
 
         await callFrame.join({ userName });
-
         setLoading(false);
       } catch (err: any) {
+        console.error('Video call error:', err);
         setError(err.message || 'Failed to start video call');
         setLoading(false);
       }
@@ -105,7 +96,7 @@ export const VideoCallDialog = ({
 
     startCall();
 
-    // Cleanup on unmount or close
+    // Cleanup
     return () => {
       if (callFrameRef.current) {
         callFrameRef.current.leave();
@@ -140,7 +131,7 @@ export const VideoCallDialog = ({
           {/* Daily.co iframe container */}
           <div ref={frameRef} className="flex-1 relative bg-black" />
 
-          {/* Loading overlay */}
+          {/* Loading */}
           {loading && (
             <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
               <div className="text-white text-center">
@@ -150,7 +141,7 @@ export const VideoCallDialog = ({
             </div>
           )}
 
-          {/* Error overlay */}
+          {/* Error */}
           {error && (
             <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
               <div className="text-white text-center">
@@ -160,7 +151,7 @@ export const VideoCallDialog = ({
             </div>
           )}
 
-          {/* Call controls */}
+          {/* Controls */}
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md rounded-full px-8 py-4 flex items-center gap-6">
             <Button
               size="icon"
@@ -190,7 +181,6 @@ export const VideoCallDialog = ({
             </Button>
           </div>
 
-          {/* Top label */}
           <div className="absolute top-4 left-4 bg-black/60 text-white px-4 py-2 rounded-full text-sm backdrop-blur">
             Calling {friendName}...
           </div>
