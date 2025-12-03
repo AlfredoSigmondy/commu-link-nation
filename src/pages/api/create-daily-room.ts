@@ -1,4 +1,4 @@
-// pages/api/create-daily-room.ts
+// pages/api/create-daily-room.ts  ← MUST BE THIS EXACT PATH
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const DAILY_API_KEY = process.env.DAILY_API_KEY?.trim();
@@ -8,44 +8,82 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  if (!DAILY_API_KEY) return res.status(500).json({ error: 'No API key' });
+  if (!DAILY_API_KEY) {
+    return res.status(500).json({ error: 'Missing Daily.co API key' });
+  }
 
   const { userId, friendId, userName = 'User' } = req.body;
-  if (!userId || !friendId) return res.status(400).json({ error: 'Missing ids' });
+  if (!userId || !friendId) {
+    return res.status(400).json({ error: 'userId and friendId required' });
+  }
 
   const roomName = [userId, friendId].sort().join('-') + '-private';
 
   try {
-    // Create or get room
-    let room = await fetch('https://api.daily.co/v1/rooms/' + roomName, {
+    // 1. Try to get existing room
+    const roomRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
-    }).then(r => r.json()).catch(() => null);
+    });
 
-    if (!room || room.error) {
-      await fetch('https://api.daily.co/v1/rooms', {
+    // If not exists (404), create it
+    if (roomRes.status === 404) {
+      const createRes = await fetch('https://api.daily.co/v1/rooms', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DAILY_API_KEY}` },
-        body: JSON.stringify({ name: roomName, privacy: 'private' }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${DAILY_API_KEY}`,
+        },
+        body: JSON.stringify({
+          name: roomName,
+          privacy: 'private',
+          properties: {
+            exp: Math.floor(Date.now() / 1000) + 7200,
+            eject_at_room_exp: true,
+          },
+        }),
       });
+
+      if (!createRes.ok) {
+        const err = await createRes.text();
+        console.error('Room creation failed:', err);
+        return res.status(500).json({ error: 'Failed to create room' });
+      }
     }
 
-    // Create token
+    // 2. Create meeting token
     const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DAILY_API_KEY}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${DAILY_API_KEY}`,
+      },
       body: JSON.stringify({
-        properties: { room_name: roomName, user_name: userName, user_id: userId },
+        properties: {
+          room_name: roomName,
+          user_name: userName,
+          user_id: userId,
+          is_owner: false,
+          exp: Math.floor(Date.now() / 1000) + 7200,
+        },
       }),
     });
 
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      console.error('Token creation failed:', err);
+      return res.status(500).json({ error: 'Failed to create token' });
+    }
+
     const { token } = await tokenRes.json();
 
-    res.status(200).json({
+    // SUCCESS
+    return res.status(200).json({
       url: `https://communitymatch.daily.co/${roomName}`,
       token,
       roomName,
     });
-  } catch (e) {
-    res.status(500).json({ error: 'Server error' });
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    return res.status(500).json({ error: 'Server error' });
   }
 }
