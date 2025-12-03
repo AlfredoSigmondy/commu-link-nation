@@ -1,6 +1,6 @@
-import type { NextApiRequest, NextApiResponse } from 'next';  // For Pages Router
+import type { NextApiRequest, NextApiResponse } from 'next'; 
 
-const DAILY_API_KEY = process.env.DAILY_API_KEY;
+const DAILY_API_KEY = (process.env.DAILY_API_KEY || '').trim();
 
 export default async function handler(
   req: NextApiRequest,
