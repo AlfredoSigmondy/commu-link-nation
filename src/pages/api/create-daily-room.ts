@@ -20,10 +20,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "userId and friendId required" });
   }
 
-  const roomName = `chat-${[userId, friendId].sort().join('-vs-')}`.toLowerCase();
+  // Room name format you want: user1-user2-private
+  const sortedIds = [userId, friendId].sort();
+  const roomName = `${sortedIds[0]}-${sortedIds[1]}-private`.toLowerCase();
 
   try {
-    // Create room
+    // Create room (Daily returns 409 if exists)
     const createRoomRes = await fetch("https://api.daily.co/v1/rooms", {
       method: "POST",
       headers: {
@@ -34,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         name: roomName,
         privacy: "private",
         properties: {
-          exp: Math.floor(Date.now() / 1000) + 7200, // 2hrs
+          exp: Math.floor(Date.now() / 1000) + 7200, // 2 hrs
           enable_chat: true,
           enable_knocking: false,
         }
@@ -48,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (createRoomRes.ok) {
       roomData = JSON.parse(rawRoomText);
     } else if (createRoomRes.status === 409) {
-      // Room already exists → fetch it
+      // Already exists → Fetch existing
       const existing = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
         headers: { Authorization: `Bearer ${DAILY_API_KEY}` }
       });
@@ -57,32 +59,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(createRoomRes.status).json({ error: rawRoomText });
     }
 
-    // Generate meeting token
+    // Create meeting token
     const tokenRes = await fetch("https://api.daily.co/v1/meeting-tokens", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${DAILY_API_KEY}`
       },
-      body: JSON.stringify({
-        properties: {
-          room_name: roomName,
-          user_name: userName || "Guest",
-        }
-      })
+      // Add this in your token creation:
+        body: JSON.stringify({
+          properties: {
+            room_name: roomName,
+            user_name: userName || "User",
+            user_id: userId,           // This locks the token to THIS user only
+            is_owner: false,
+            exp: Math.floor(Date.now() / 1000) + 7200,
+            enable_screenshare: true,
+            start_video_off: false,
+            start_audio_off: false,
+          }
+        })
     });
 
     const tokenData = await tokenRes.json();
-    console.log("Token response:", tokenData);
 
     if (!tokenRes.ok) {
       return res.status(tokenRes.status).json({ error: tokenData });
     }
 
     return res.status(200).json({
-      url: roomData.url,
-      token: tokenData.token,
-      roomName
+      roomName,
+      url: `https://communitymatch.daily.co/${roomName}`,
+      token: tokenData.token
     });
 
   } catch (err: any) {
