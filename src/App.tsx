@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { HMSRoomProvider } from "@100mslive/react-sdk";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
@@ -25,6 +26,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <HMSRoomProvider>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<Auth />} />
@@ -39,6 +41,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
             <Route path="/reset-password" element={<ResetPassword />} />
           </Routes>
+          </HMSRoomProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

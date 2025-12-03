@@ -4,13 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.js",
+    "dev:vite": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@100mslive/react-sdk": "^0.10.39",
     "@daily-co/daily-js": "^0.85.0",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
@@ -52,6 +54,8 @@
     "embla-carousel-react": "^8.6.0",
     "emoji-mart": "^5.6.0",
     "input-otp": "^1.4.2",
+    "jsonwebtoken": "^9.0.2",
+    "livekit-server-sdk": "^2.14.2",
     "lucide-react": "^0.462.0",
     "mapbox-gl": "^3.16.0",
     "next-themes": "^0.3.0",
@@ -71,6 +75,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@tailwindcss/typography": "^0.5.16",
+    "@types/express": "^5.0.6",
     "@types/next": "^8.0.7",
     "@types/node": "^22.16.5",
     "@types/react": "^18.3.23",
@@ -80,6 +85,7 @@
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
+    "express": "^5.2.1",
     "globals": "^15.15.0",
     "lovable-tagger": "^1.1.11",
     "next": "^16.0.6",
