@@ -1,87 +1,51 @@
-// pages/api/create-daily-room.ts   ← MUST be this exact path
+// pages/api/create-daily-room.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const DAILY_API_KEY = process.env.DAILY_API_KEY?.trim();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  if (!DAILY_API_KEY) {
-    console.error('DAILY_API_KEY missing');
-    return res.status(500).json({ error: 'Server configuration error' });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { userId, friendId, userName = 'User', friendName } = req.body;
+  if (!DAILY_API_KEY) return res.status(500).json({ error: 'No API key' });
 
-  if (!userId || !friendId) {
-    return res.status(400).json({ error: 'userId and friendId required' });
-  }
+  const { userId, friendId, userName = 'User' } = req.body;
+  if (!userId || !friendId) return res.status(400).json({ error: 'Missing ids' });
 
-  const sorted = [userId, friendId].sort();
-  const roomName = `${sorted[0]}-${sorted[1]}-private`;
+  const roomName = [userId, friendId].sort().join('-') + '-private';
 
   try {
-    // 1. Create or get room
-    let roomData;
-    const createRes = await fetch('https://api.daily.co/v1/rooms', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DAILY_API_KEY}`,
-      },
-      body: JSON.stringify({
-        name: roomName,
-        privacy: 'private',
-        properties: { exp: Math.floor(Date.now() / 1000) + 7200 },
-      }),
-    });
+    // Create or get room
+    let room = await fetch('https://api.daily.co/v1/rooms/' + roomName, {
+      headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+    }).then(r => r.json()).catch(() => null);
 
-    if (createRes.ok) {
-      roomData = await createRes.json();
-    } else if (createRes.status === 409) {
-      const getRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
-        headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+    if (!room || room.error) {
+      await fetch('https://api.daily.co/v1/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DAILY_API_KEY}` },
+        body: JSON.stringify({ name: roomName, privacy: 'private' }),
       });
-      roomData = await getRes.json();
-    } else {
-      const text = await createRes.text();
-      console.error('Daily room error:', text);
-      return res.status(500).json({ error: 'Failed to create room' });
     }
 
-    // 2. Create meeting token (locked to userId!)
+    // Create token
     const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DAILY_API_KEY}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DAILY_API_KEY}` },
       body: JSON.stringify({
-        properties: {
-          room_name: roomName,
-          user_name: userName,
-          user_id: userId,           // ← THIS locks it to the caller
-          is_owner: false,
-          exp: Math.floor(Date.now() / 1000) + 7200,
-        },
+        properties: { room_name: roomName, user_name: userName, user_id: userId },
       }),
     });
-
-    if (!tokenRes.ok) {
-      const err = await tokenRes.text();
-      console.error('Token error:', err);
-      return res.status(500).json({ error: 'Failed to create token' });
-    }
 
     const { token } = await tokenRes.json();
 
-    return res.status(200).json({
+    res.status(200).json({
       url: `https://communitymatch.daily.co/${roomName}`,
       token,
       roomName,
     });
-  } catch (err: any) {
-    console.error('Unexpected error:', err);
-    return res.status(500).json({ error: 'Server error' });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
   }
 }
