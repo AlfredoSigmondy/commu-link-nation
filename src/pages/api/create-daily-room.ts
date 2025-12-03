@@ -1,21 +1,14 @@
-// pages/myapi/create-daily-room.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+// api/create-daily-room.js
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
 
-const DAILY_API_KEY = process.env.DAILY_API_KEY;
+  const DAILY_API_KEY = process.env.DAILY_API_KEY;
+  if (!DAILY_API_KEY) return res.status(500).json({ error: 'No API key' });
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!DAILY_API_KEY) {
-    return res.status(500).json({ error: 'DAILY_API_KEY not set' });
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Only POST allowed' });
-  }
-
-  const { roomName, userName = 'User', isOwner = true } = req.body;
+  const { roomName, userName = 'User' } = req.body;
 
   try {
-    // Create private room
+    // Create room
     const roomRes = await fetch('https://api.daily.co/v1/rooms', {
       method: 'POST',
       headers: {
@@ -25,11 +18,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: JSON.stringify({
         name: roomName,
         privacy: 'private',
-        properties: { exp: Math.floor(Date.now() / 1000) + 7200 },
+        properties: { exp: Math.round(Date.now() / 1000) + 7200 },
       }),
     });
     const roomData = await roomRes.json();
-    if (roomData.error) throw roomData;
 
     // Create token
     const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
@@ -39,23 +31,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         Authorization: `Bearer ${DAILY_API_KEY}`,
       },
       body: JSON.stringify({
-        properties: {
-          room_name: roomName,
-          is_owner: isOwner,
-          user_name: userName,
-        },
+        properties: { room_name: roomName, is_owner: true, user_name: userName },
       }),
     });
     const tokenData = await tokenRes.json();
-    if (tokenData.error) throw tokenData;
 
-    res.status(200).json({
-      url: roomData.url,
-      token: tokenData.token,
-      roomName,
-    });
-  } catch (error: any) {
-    console.error('Daily.co error:', error);
-    res.status(500).json({ error: error.message || 'Failed' });
+    res.status(200).json({ url: roomData.url, token: tokenData.token });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
   }
 }
