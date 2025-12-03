@@ -36,6 +36,7 @@ export const VideoCallDialog = ({
       setError('');
 
       try {
+        // In VideoCallDialog.tsx, inside the `startCall` function:
         const res = await fetch('/api/create-daily-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -46,6 +47,26 @@ export const VideoCallDialog = ({
             friendName,
           }),
         });
+
+// NEW: Log raw response for debugging
+                console.log('API Status:', res.status);
+                console.log('API Headers:', [...res.headers.entries()]);
+                const rawText = await res.text();  // Get raw text first
+                console.log('Raw Response Body:', rawText);  // This will reveal HTML or error
+
+                if (!res.ok) {
+                  console.error('API Error Status:', res.status, 'Body:', rawText);
+                  throw new Error(`API failed: ${res.status} - ${rawText.substring(0, 200)}...`);  // Truncate for console
+                }
+
+                let data;
+                try {
+                  data = JSON.parse(rawText);  // Parse manually after logging
+                } catch (parseErr) {
+                  console.error('JSON Parse Error:', parseErr);
+                  console.error('Failed to parse:', rawText.substring(0, 500));  // Show first 500 chars
+                  throw new Error('Invalid JSON from API: ' + rawText.substring(0, 200));
+                }
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to start call');
