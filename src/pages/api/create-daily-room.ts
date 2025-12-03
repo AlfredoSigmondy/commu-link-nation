@@ -1,109 +1,92 @@
-// src/pages/api/create-daily-room.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const DAILY_API_KEY = (process.env.DAILY_API_KEY || '').trim();
+const DAILY_API_KEY = process.env.DAILY_API_KEY?.trim() || '';
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  // Log for Vercel Function Logs
-  console.log('API Called with method:', req.method);
-  console.log('Body:', req.body);
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log("API called", req.method, req.body);
 
   if (req.method !== 'POST') {
-    console.log('Method not POST');
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: "Only POST allowed" });
   }
 
   if (!DAILY_API_KEY) {
-    console.error('DAILY_API_KEY missing!');
-    return res.status(500).json({ error: 'Daily.co API key not configured' });
+    console.error("DAILY_API_KEY missing");
+    return res.status(500).json({ error: "Daily API key missing" });
   }
 
   const { userId, friendId, userName, friendName } = req.body;
 
   if (!userId || !friendId) {
-    return res.status(400).json({ error: 'userId and friendId required' });
+    return res.status(400).json({ error: "userId and friendId required" });
   }
 
-  const roomName = `chat-${[userId, friendId].sort().join('-vs-')}`;
+  const roomName = `chat-${[userId, friendId].sort().join('-vs-')}`.toLowerCase();
 
   try {
-    // 1. Create or get room
-    let room;
-    const createRes = await fetch('https://api.daily.co/v1/rooms', {
-      method: 'POST',
+    // Create room
+    const createRoomRes = await fetch("https://api.daily.co/v1/rooms", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DAILY_API_KEY}`,
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${DAILY_API_KEY}`
       },
       body: JSON.stringify({
         name: roomName,
-        privacy: 'private',
+        privacy: "private",
         properties: {
-          exp: Math.round(Date.now() / 1000) + 60 * 60 * 2, // 2 hours
+          exp: Math.floor(Date.now() / 1000) + 7200, // 2hrs
           enable_chat: true,
           enable_knocking: false,
-          enable_screenshare: true,
-        },
-      }),
+        }
+      })
     });
 
-    console.log('Daily Create Room Status:', createRes.status);
-    const rawDaily = await createRes.text();
-    console.log('Daily Raw Response:', rawDaily.substring(0, 300));
+    let roomData;
+    const rawRoomText = await createRoomRes.text();
+    console.log("Daily Room Raw:", rawRoomText);
 
-    if (createRes.ok) {
-      room = JSON.parse(rawDaily);
-    } else if (createRes.status === 409) {
-      // Room exists → fetch it
-      const getRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
-        headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+    if (createRoomRes.ok) {
+      roomData = JSON.parse(rawRoomText);
+    } else if (createRoomRes.status === 409) {
+      // Room already exists → fetch it
+      const existing = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
+        headers: { Authorization: `Bearer ${DAILY_API_KEY}` }
       });
-      if (!getRes.ok) throw new Error(`Fetch existing room failed: ${getRes.status}`);
-      room = await getRes.json();
+      roomData = await existing.json();
     } else {
-      throw new Error(`Daily API error: ${createRes.status} - ${rawDaily}`);
+      return res.status(createRoomRes.status).json({ error: rawRoomText });
     }
 
-    // 2. Generate meeting token
-    const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
-      method: 'POST',
+    // Generate meeting token
+    const tokenRes = await fetch("https://api.daily.co/v1/meeting-tokens", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DAILY_API_KEY}`,
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${DAILY_API_KEY}`
       },
       body: JSON.stringify({
         properties: {
           room_name: roomName,
-          is_owner: false,
-          user_name: userName || 'User',
-          exp: Math.round(Date.now() / 1000) + 60 * 60 * 2,
-        },
-      }),
+          user_name: userName || "Guest",
+        }
+      })
     });
-
-    if (!tokenRes.ok) {
-      const tokenErrBody = await tokenRes.text();
-      console.error('Token API error:', tokenRes.status, tokenErrBody);
-      throw new Error(`Token creation failed: ${tokenRes.status}`);
-    }
 
     const tokenData = await tokenRes.json();
+    console.log("Token response:", tokenData);
 
-    console.log('Success: Room URL', room.url);
+    if (!tokenRes.ok) {
+      return res.status(tokenRes.status).json({ error: tokenData });
+    }
 
-    res.status(200).json({
-      url: room.url,
+    return res.status(200).json({
+      url: roomData.url,
       token: tokenData.token,
-      roomName,
+      roomName
     });
-  } catch (error: any) {
-    console.error('Full API error:', error);
-    res.status(500).json({
-      error: error.message || 'Failed to create call',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-    });
+
+  } catch (err: any) {
+    console.error("Server Error:", err);
+    return res.status(500).json({ error: err.message || "Unknown server error" });
   }
 }
