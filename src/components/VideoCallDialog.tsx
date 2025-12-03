@@ -1,5 +1,6 @@
+// src/components/VideoCallDialog.tsx
 import { useEffect, useRef, useState } from 'react';
-import DailyIframe, { DailyCall } from '@daily-co/daily-js';
+import DailyIframe from '@daily-co/daily-js';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Loader2, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
@@ -22,14 +23,12 @@ export const VideoCallDialog = ({
   userName,
 }: VideoCallDialogProps) => {
   const frameRef = useRef<HTMLDivElement>(null);
-  const callFrameRef = useRef<DailyCall | null>(null);
+  const callFrameRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
 
   useEffect(() => {
-    if (!open || !frameRef.current) return;
+    if (!open) return;
 
     const startCall = async () => {
       setLoading(true);
@@ -39,38 +38,19 @@ export const VideoCallDialog = ({
         const res = await fetch('/api/create-daily-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            friendId,
-            userName,
-            friendName,
-          }),
+          body: JSON.stringify({ userId, friendId, userName, friendName }),
         });
 
-        // Debug: Log everything before parsing
-        console.log('API Response Status:', res.status);
-        console.log('API Response Headers:', Object.fromEntries(res.headers.entries()));
         const rawText = await res.text();
-        console.log('Raw Response Body:', rawText);
+        console.log('Daily API raw response:', rawText);
 
-        if (!res.ok) {
-          console.error('API failed with status:', res.status);
-          throw new Error(`Server error ${res.status}: ${rawText.substring(0, 200)}`);
-        }
+        if (!res.ok) throw new Error(rawText || 'Failed to create room');
 
-        // Parse JSON safely
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (parseErr) {
-          console.error('Invalid JSON received:', rawText.substring(0, 500));
-          throw new Error('Invalid response from server (not JSON)');
-        }
+        const data = JSON.parse(rawText);
 
-        // Success: Create Daily.co call
+        // CRITICAL FIX: Use url ONLY here
         const callFrame = DailyIframe.createCallObject({
-          url: data.url,
-          token: data.token,
+          url: data.url,           // only url
           showLeaveButton: false,
           showFullscreenButton: true,
         });
@@ -85,40 +65,31 @@ export const VideoCallDialog = ({
           frameRef.current.appendChild(iframe);
         }
 
-        await callFrame.join({ userName });
+        // Join with token + name here
+        await callFrame.join({
+          userName,
+          token: data.token,       // token goes here
+        });
+
         setLoading(false);
       } catch (err: any) {
-        console.error('Video call error:', err);
-        setError(err.message || 'Failed to start video call');
+        console.error('Video call failed:', err);
+        setError(err.message || 'Failed to connect');
         setLoading(false);
       }
     };
 
     startCall();
 
-    // Cleanup
     return () => {
-      if (callFrameRef.current) {
-        callFrameRef.current.leave();
-        callFrameRef.current.destroy();
-        callFrameRef.current = null;
-      }
-      if (frameRef.current) {
-        frameRef.current.innerHTML = '';
-      }
+      callFrameRef.current?.destroy();
+      callFrameRef.current = null;
+      frameRef.current && (frameRef.current.innerHTML = '');
     };
   }, [open, userId, friendId, userName, friendName]);
 
-  const toggleMic = () => {
-    callFrameRef.current?.setLocalAudio(!micOn);
-    setMicOn(!micOn);
-  };
-
-  const toggleCam = () => {
-    callFrameRef.current?.setLocalVideo(!camOn);
-    setCamOn(!camOn);
-  };
-
+  const toggleMic = () => callFrameRef.current?.setLocalAudio(callFrameRef.current?.localAudio() === false);
+  const toggleCam = () => callFrameRef.current?.setLocalVideo(callFrameRef.current?.localVideo() === false);
   const leaveCall = () => {
     callFrameRef.current?.leave();
     onOpenChange(false);
@@ -128,64 +99,43 @@ export const VideoCallDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl w-full p-0 overflow-hidden h-[85vh] bg-black">
         <div className="relative w-full h-full flex flex-col">
-          {/* Daily.co iframe container */}
-          <div ref={frameRef} className="flex-1 relative bg-black" />
+          <div ref={frameRef} className="flex-1 bg-black" />
 
-          {/* Loading */}
           {loading && (
-            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
               <div className="text-white text-center">
                 <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4" />
-                <p className="text-lg">Connecting to {friendName}...</p>
+                <p className="text-xl">Connecting to {friendName}...</p>
               </div>
             </div>
           )}
 
-          {/* Error */}
           {error && (
-            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50">
               <div className="text-white text-center">
-                <p className="text-lg mb-6">{error}</p>
+                <p className="text-xl mb-6">{error}</p>
                 <Button onClick={() => onOpenChange(false)}>Close</Button>
               </div>
             </div>
           )}
 
-          {/* Controls */}
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md rounded-full px-8 py-4 flex items-center gap-6">
-            <Button
-              size="icon"
-              variant={micOn ? 'secondary' : 'destructive'}
-              className="rounded-full h-14 w-14"
-              onClick={toggleMic}
-            >
-              {micOn ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md rounded-full px-8 py-4 flex gap-6">
+            <Button size="icon" className="h-14 w-14 rounded-full" onClick={toggleMic}>
+              {callFrameRef.current?.localAudio() ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
             </Button>
-
-            <Button
-              size="icon"
-              variant={camOn ? 'secondary' : 'destructive'}
-              className="rounded-full h-14 w-14"
-              onClick={toggleCam}
-            >
-              {camOn ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
+            <Button size="icon" className="h-14 w-14 rounded-full" onClick={toggleCam}>
+              {callFrameRef.current?.localVideo() ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
             </Button>
-
-            <Button
-              size="icon"
-              variant="destructive"
-              className="rounded-full h-16 w-16"
-              onClick={leaveCall}
-            >
+            <Button size="icon" variant="destructive" className="h-16 w-16 rounded-full" onClick={leaveCall}>
               <PhoneOff className="h-7 w-7" />
             </Button>
           </div>
 
-          <div className="absolute top-4 left-4 bg-black/60 text-white px-4 py-2 rounded-full text-sm backdrop-blur">
+          <div className="absolute top-4 left-4 bg-black/60 text-white px-4 py-2 rounded-full text-sm">
             Calling {friendName}...
           </div>
         </div>
       </DialogContent>
     </Dialog>
-  );
-};
+  ); 
+}; 
