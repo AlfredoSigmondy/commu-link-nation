@@ -10,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (!DAILY_API_KEY) {
-    return res.status(500).json({ error: 'Server misconfigured: missing API key' });
+    return res.status(500).json({ error: 'Server misconfigured: missing DAILY_API_KEY' });
   }
 
   const { userId, friendId, userName = 'User' } = req.body as {
@@ -26,13 +26,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const roomName = [userId, friendId].sort().join('-') + '-private';
 
   try {
-    // Try to get existing room
-    const roomRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
+    // 1. Try to fetch existing room
+    let roomUrl = `https://communitymatch.daily.co/${roomName}`;
+
+    const existingRoomRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
     });
 
-    // Create room if it doesn't exist (404)
-    if (roomRes.status === 404) {
+    // 2. Create room only if it doesn't exist
+    if (existingRoomRes.status === 404) {
       const createRes = await fetch('https://api.daily.co/v1/rooms', {
         method: 'POST',
         headers: {
@@ -43,20 +45,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           name: roomName,
           privacy: 'private',
           properties: {
-            exp: Math.floor(Date.now() / 1000) + 7200, // 2 hours from now
+            exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24 hours (more forgiving)
             eject_at_room_exp: true,
+            enable_chat: true,
+            enable_knocking: false,
+            enable_prejoin_ui: false,        // ← Important for token-based joins
+            enable_network_ui: false,
+            enable_noise_cancellation: true,
+            lang: 'en',
           },
         }),
       });
 
       if (!createRes.ok) {
         const err = await createRes.text();
-        console.error('Daily room creation failed:', err);
-        return res.status(500).json({ error: 'Failed to create Daily room' });
+        console.error('Failed to create Daily room:', err);
+        return res.status(500).json({ error: 'Failed to create room' });
       }
     }
 
-    // Always create a fresh token
+    // 3. Always generate a fresh meeting token (this is perfect)
     const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
       headers: {
@@ -69,26 +77,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           user_name: userName,
           user_id: userId,
           is_owner: false,
-          exp: Math.floor(Date.now() / 1000) + 7200,
+          exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24h token
+          enable_knocking: false,
+          enable_prejoin_ui: false,   // ← Doubly ensure no lobby
         },
       }),
     });
 
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
-      console.error('Daily token creation failed:', err);
-      return res.status(500).json({ error: 'Failed to create meeting token' });
+      console.error('Failed to create meeting token:', err);
+      return res.status(500).json({ error: 'Failed to generate token' });
     }
 
     const { token } = await tokenRes.json();
 
+    // Success!
     return res.status(200).json({
-      url: `https://communitymatch.daily.co/${roomName}`, // Matches your app's subdomain vibe
+      url: roomUrl,
       token,
       roomName,
     });
   } catch (error: any) {
-    console.error('Unexpected error:', error);
+    console.error('Unexpected error in create-daily-room:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
