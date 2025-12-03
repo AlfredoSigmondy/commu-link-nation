@@ -1,7 +1,4 @@
-// src/pages/api/create-daily-room.ts   ← (pages router)
-// OR app/api/create-daily-room/route.ts ← (app router — see note below)
-
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';  // For Pages Router
 
 const DAILY_API_KEY = process.env.DAILY_API_KEY;
 
@@ -9,11 +6,17 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  // Log for Vercel Function Logs
+  console.log('API Called with method:', req.method);
+  console.log('Body:', req.body);
+
   if (req.method !== 'POST') {
+    console.log('Method not POST');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   if (!DAILY_API_KEY) {
+    console.error('DAILY_API_KEY missing!');
     return res.status(500).json({ error: 'Daily.co API key not configured' });
   }
 
@@ -28,8 +31,9 @@ export default async function handler(
   try {
     // 1. Create or get room
     let room;
+    let createRes;
     try {
-      const createRes = await fetch('https://api.daily.co/v1/rooms', {
+      createRes = await fetch('https://api.daily.co/v1/rooms', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -47,22 +51,29 @@ export default async function handler(
         }),
       });
 
+      // NEW: Log Daily response
+      console.log('Daily Create Room Status:', createRes.status);
+      const rawDaily = await createRes.text();
+      console.log('Daily Raw Response:', rawDaily.substring(0, 300));  // Log first 300 chars
+
       if (createRes.ok) {
-        room = await createRes.json();
+        room = JSON.parse(rawDaily);
       } else if (createRes.status === 409) {
-        // Room already exists → fetch it
+        // Room exists → fetch it
         const getRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
           headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
         });
+        if (!getRes.ok) throw new Error(`Fetch existing room failed: ${getRes.status}`);
         room = await getRes.json();
       } else {
-        throw new Error('Failed to create room');
+        throw new Error(`Daily API error: ${createRes.status} - ${rawDaily}`);
       }
-    } catch (err) {
-      throw new Error('Room creation failed');
+    } catch (roomErr) {
+      console.error('Room creation error:', roomErr);
+      throw new Error('Room creation failed: ' + roomErr.message);
     }
 
-    // 2. Generate meeting token (for current user)
+    // 2. Generate meeting token
     const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
       headers: {
@@ -79,7 +90,15 @@ export default async function handler(
       }),
     });
 
+    if (!tokenRes.ok) {
+      const tokenErrBody = await tokenRes.text();
+      console.error('Token API error:', tokenRes.status, tokenErrBody);
+      throw new Error(`Token creation failed: ${tokenRes.status}`);
+    }
+
     const tokenData = await tokenRes.json();
+
+    console.log('Success: Room URL', room.url);  // Log success
 
     res.status(200).json({
       url: room.url,
@@ -87,7 +106,10 @@ export default async function handler(
       roomName,
     });
   } catch (error: any) {
-    console.error('Daily.co error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create call' });
+    console.error('Full API error:', error);
+    res.status(500).json({ 
+      error: error.message || 'Failed to create call',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined  // Stack trace only in dev
+    });
   }
 }
