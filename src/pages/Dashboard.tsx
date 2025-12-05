@@ -18,7 +18,7 @@ import { SignOutDialog } from '@/components/SignOutDialog';
 import { NotificationBell } from '@/components/NotificationBell';
 
 const Dashboard = () => {
-  const { user, isAdmin, loading, signOut } = useAuth();
+  const { user, isAdmin, loading, signOut } = useAuth();const { user, isAdmin, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
   

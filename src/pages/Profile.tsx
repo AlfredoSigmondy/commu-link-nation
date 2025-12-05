@@ -29,7 +29,7 @@ const Profile = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-
+  const { user, isAdmin, loading, signOut } = useAuth(); 
   const [profile, setProfile] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -226,8 +226,7 @@ const Profile = () => {
       <SignOutDialog
         open={showSignOutDialog}
         onOpenChange={setShowSignOutDialog}
-        onConfirm={() => signOut(true)}
-      />
+        onConfirm={() => signOut(true)}/>
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         {/* Profile Card with Rating Badge */}
