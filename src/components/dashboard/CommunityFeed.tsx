@@ -145,9 +145,10 @@ const CommunityFeed = () => {
             </Avatar>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="flex-1 text-left bg-gray-100 hover:bg-gray-200 rounded-full px-4 py-3 text-gray-600 text-base transition"
+              className="flex-1 text-left bg-gray-100 hover:bg-gray-200 rounded-full px-4 py-2 text-gray-600 text-sm md:text-base transition"
             >
-              What's your concern, {firstName}?
+              <span className="inline md:hidden">Concern, {firstName}?</span>
+              <span className="hidden md:inline">What's your concern, {firstName}?</span>
             </button>
           </div>
 

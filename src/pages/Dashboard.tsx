@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useTypewriter } from '@/hooks/useTypewriter';
 import { Button } from '@/components/ui/button';
 import { 
   LogOut, 
@@ -20,6 +21,14 @@ const Dashboard = () => {
   const { user, isAdmin, loading, signOut } = useAuth();
   const navigate = useNavigate();
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
+  
+  const greetingText = user?.user_metadata?.full_name || 'Friend';
+  const animatedGreeting = useTypewriter({
+    text: `${greetingText}!`,
+    speed: 80,
+    delayStart: 300,
+    delayEnd: 3000,
+  });
 
   useEffect(() => {
     if (!loading && !user) {
@@ -168,8 +177,9 @@ const Dashboard = () => {
                 <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 truncate">
                   Welcome back,
                 </h2>
-                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-[#2ec2b3] truncate">
-                  {user?.user_metadata?.full_name || 'Friend'}!
+                <p className="text-lg sm:text-xl lg:text-2xl font-bold text-[#2ec2b3] truncate h-[2em] flex items-center">
+                  {animatedGreeting}
+                  <span className="animate-pulse ml-1">|</span>
                 </p>
                 <p className="text-gray-500 text-sm sm:text-base mt-1 hidden sm:block">
                   Here's what's happening in your barangay today

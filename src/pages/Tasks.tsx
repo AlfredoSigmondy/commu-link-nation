@@ -12,7 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, MapPin, DollarSign, Check, Navigation, Star, ClipboardList, Trash2, Locate } from 'lucide-react';
+import { ArrowLeft, Plus, MapPin, DollarSign, Check, Navigation, Star, ClipboardList, Trash2, Locate, Eye, MessageCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -34,13 +34,48 @@ interface Task {
   accepter?: { full_name: string } | null;
 }
 
+const TaskCard: React.FC<{ task: Task, isCreatorView: boolean }> = ({ task, isCreatorView }) => {
+  return (
+    <Card className="shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+      <CardHeader className="p-3">
+        <div className="flex justify-between items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-sm truncate">{task.title}</CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              {isCreatorView ? `Accepted by: ${task.accepter?.full_name || 'N/A'}` : `Posted by: ${task.profiles.full_name}`}
+            </CardDescription>
+          </div>
+          {task.status === 'open' && <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 text-[10px] flex-shrink-0">Open</Badge>}
+          {task.status === 'in_progress' && <Badge className="bg-yellow-100 text-yellow-800 text-[10px] flex-shrink-0">In Progress</Badge>}
+          {task.status === 'pending_completion' && <Badge className="bg-purple-100 text-purple-800 text-[10px] flex-shrink-0">Pending Review</Badge>}
+          {task.status === 'completed' && <Badge className="bg-green-100 text-green-800 text-[10px] flex-shrink-0">Completed</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent className="p-3 pt-0">
+        <div className="flex justify-between items-center text-xs text-gray-500">
+          <div className="flex items-center">
+            <MapPin className="h-3 w-3 mr-1" /> Nearby
+          </div>
+          {task.payment_amount && (
+            <div className="flex items-center font-bold text-[#2ec2b3] text-xs">
+              ₱{task.payment_amount.toFixed(2)}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 const Tasks = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [mapDialogOpen, setMapDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -104,41 +139,62 @@ const Tasks = () => {
   };
 
   const fetchTasks = async () => {
-    const { data, error } = await supabase
-      .from('tasks')
-      .select(`
-        *,
-        profiles!tasks_creator_id_fkey (full_name)
-      `)
-      .neq('status', 'completed')
-      .order('created_at', { ascending: false });
+    setIsLoadingTasks(true);
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select(`
+          *,
+          profiles!tasks_creator_id_fkey (full_name)
+        `)
+        .neq('status', 'completed')
+        .order('created_at', { ascending: false });
 
-    if (error) return console.error(error);
+      if (error) throw error;
 
-    const tasksWithAccepters = await Promise.all(
-      (data as Task[]).map(async (task) => {
-        if (task.accepted_by) {
-          const { data: accepterData } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', task.accepted_by)
-            .single();
-          return { ...task, accepter: accepterData };
-        }
-        return task;
-      })
-    );
+      const tasksWithAccepters = await Promise.all(
+        (data as Task[]).map(async (task) => {
+          if (task.accepted_by) {
+            const { data: accepterData } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', task.accepted_by)
+              .single();
+            return { ...task, accepter: accepterData };
+          }
+          return task;
+        })
+      );
 
-    let filtered = tasksWithAccepters;
-    if (userLocation) {
-      filtered = tasksWithAccepters.filter((task: Task) => {
-        if (!task.location_lat || !task.location_lng) return true;
-        const distance = calculateDistance(userLocation.lat, userLocation.lng, task.location_lat, task.location_lng);
-        return distance <= 50;
-      });
+      let filtered = tasksWithAccepters;
+      if (userLocation) {
+        filtered = tasksWithAccepters.filter((task: Task) => {
+          if (!task.location_lat || !task.location_lng) return true;
+          const distance = calculateDistance(userLocation.lat, userLocation.lng, task.location_lat, task.location_lng);
+          return distance <= 50_000; // 50km (you had 50m before — likely meant 50km)
+        });
+      }
+
+      setTasks(filtered);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingTasks(false);
     }
+  };
 
-    setTasks(filtered);
+  const getMyCreatedTasks = (): Task[] => {
+    if (!user) return [];
+    return tasks
+      .filter(task => task.creator_id === user.id && task.status !== 'completed')
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  };
+
+  const getMyAcceptedTasks = (): Task[] => {
+    if (!user) return [];
+    return tasks
+      .filter(task => task.accepted_by === user.id && task.status !== 'completed')
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -206,6 +262,7 @@ const Tasks = () => {
         .eq('id', taskId);
       if (error) throw error;
       toast({ title: "Task accepted!" });
+      fetchTasks();
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -216,17 +273,25 @@ const Tasks = () => {
     if (!task) return;
 
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ status: 'completed' })
-        .eq('id', taskId);
-      if (error) throw error;
+      if (task.accepted_by === user?.id) {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ status: 'pending_completion' })
+          .eq('id', taskId);
+        if (error) throw error;
+        toast({ title: "Submitted for review", description: "Waiting for creator confirmation" });
+      } else if (task.creator_id === user?.id) {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ status: 'completed' })
+          .eq('id', taskId);
+        if (error) throw error;
+        toast({ title: "Task completed!" });
 
-      toast({ title: "Task completed!" });
-
-      if (task.creator_id === user?.id && task.accepted_by) {
-        setTaskToRate(task);
-        setRatingDialogOpen(true);
+        if (task.accepted_by) {
+          setTaskToRate(task);
+          setRatingDialogOpen(true);
+        }
       }
       fetchTasks();
     } catch (error: any) {
@@ -248,6 +313,59 @@ const Tasks = () => {
       toast({ title: "Thank you!", description: "Rating submitted" });
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  // OPTIMIZED: Prevents duplicate friendships + direct messaging
+  const handleMessageUser = async (userId: string) => {
+    if (!user || userId === user.id) return;
+
+    try {
+      const { data: existingFriendship, error: checkError } = await supabase
+        .from('friendships')
+        .select('id, status')
+        .or(`and(user_id.eq.${user.id},friend_id.eq.${userId}),and(user_id.eq.${userId},friend_id.eq.${user.id})`)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') throw checkError;
+
+      if (existingFriendship) {
+        // Already friends → go straight to chat
+        navigate('/messages', { state: { selectedUserId: userId } });
+        return;
+      }
+
+      // Create friendship (auto-accept for task flow)
+      const { error: insertError } = await supabase
+        .from('friendships')
+        .insert({
+          user_id: user.id,
+          friend_id: userId,
+          status: 'accepted',
+        });
+
+      if (insertError) {
+        if (insertError.code === '23505') {
+          // Duplicate — likely race condition, safe to ignore
+          console.log('Friendship already created elsewhere');
+        } else {
+          throw insertError;
+        }
+      } else {
+        toast({
+          title: "Connected!",
+          description: "You can now message this user",
+        });
+      }
+
+      navigate('/messages', { state: { selectedUserId: userId } });
+    } catch (error: any) {
+      console.error('Message user error:', error);
+      toast({
+        title: "Error",
+        description: "Could not start chat. Try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -329,46 +447,100 @@ const Tasks = () => {
               </h1>
             </div>
 
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-[#2ec2b3] hover:bg-[#28a399] text-white rounded-xl shadow-lg text-sm sm:text-base">
-                  <Plus className="h-4 w-4 sm:h-5 sm:w-5 sm:mr-2" />
-                  <span className="hidden sm:inline">Create Task</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Create New Task</DialogTitle>
-                  <DialogDescription>Post a task using your current location</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleCreateTask} className="space-y-4 mt-4">
-                  <div>
-                    <Label>Title</Label>
-                    <Input name="title" required placeholder="e.g., Help carry groceries" className="mt-1" />
-                  </div>
-                  <div>
-                    <Label>Description</Label>
-                    <Textarea name="description" required placeholder="What needs to be done?" className="min-h-32 mt-1" />
-                  </div>
-                  <div>
-                    <Label>Payment (₱) <span className="text-gray-400 text-xs">(optional)</span></Label>
-                    <Input name="payment" type="number" step="0.01" placeholder="50.00" className="mt-1" />
-                  </div>
-
-                  <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                    <Locate className="h-6 w-6 text-green-600" />
-                    <div>
-                      <p className="font-medium text-green-800">Using your current location</p>
-                      <p className="text-xs text-green-600">Only people within 50m can see this task</p>
-                    </div>
-                  </div>
-
-                  <Button type="submit" disabled={isCreating || !userLocation} className="w-full bg-[#2ec2b3] hover:bg-[#28a399]">
-                    {isCreating ? 'Posting...' : 'Post Task Now'}
+            <div className="flex items-center gap-2">
+              <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="text-[#2ec2b3] border-[#2ec2b3] hover:bg-teal-50 rounded-xl shadow-sm text-sm sm:text-base">
+                    <Eye className="h-4 w-4 sm:h-5 sm:w-5 sm:mr-2" />
+                    <span className="hidden sm:inline">View</span>
                   </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+                  <DialogHeader>
+                    <DialogTitle>My Task Activity</DialogTitle>
+                    <DialogDescription>Your posted and accepted tasks.</DialogDescription>
+                  </DialogHeader>
+                  <ScrollArea className="flex-1 pr-4">
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-gray-700">
+                          <Plus className="h-4 w-4 text-[#2ec2b3]" />
+                          Tasks I Created ({getMyCreatedTasks().length})
+                        </h3>
+                        <div className="grid gap-3">
+                          {getMyCreatedTasks().length > 0 ? (
+                            getMyCreatedTasks().map((task) => (
+                              <TaskCard key={task.id} task={task} isCreatorView={true} />
+                            ))
+                          ) : (
+                            <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-md">You haven't posted any tasks yet.</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="border-t pt-4"></div>
+
+                      <div>
+                        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-gray-700">
+                          <Check className="h-4 w-4 text-yellow-600" />
+                          Tasks I Accepted ({getMyAcceptedTasks().length})
+                        </h3>
+                        <div className="grid gap-3">
+                          {getMyAcceptedTasks().length > 0 ? (
+                            getMyAcceptedTasks().map((task) => (
+                              <TaskCard key={task.id} task={task} isCreatorView={false} />
+                            ))
+                          ) : (
+                            <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-md">You haven't accepted any tasks yet.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-[#2ec2b3] hover:bg-[#28a399] text-white rounded-xl shadow-lg text-sm sm:text-base">
+                    <Plus className="h-4 w-4 sm:h-5 sm:w-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Create Task</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Create New Task</DialogTitle>
+                    <DialogDescription>Post a task using your current location</DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateTask} className="space-y-4 mt-4">
+                    <div>
+                      <Label>Title</Label>
+                      <Input name="title" required placeholder="e.g., Help carry groceries" className="mt-1" />
+                    </div>
+                    <div>
+                      <Label>Description</Label>
+                      <Textarea name="description" required placeholder="What needs to be done?" className="min-h-32 mt-1" />
+                    </div>
+                    <div>
+                      <Label>Payment (₱) <span className="text-gray-400 text-xs">(optional)</span></Label>
+                      <Input name="payment" type="number" step="0.01" placeholder="50.00" className="mt-1" />
+                    </div>
+
+                    <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                      <Locate className="h-6 w-6 text-green-600" />
+                      <div>
+                        <p className="font-medium text-green-800">Using your current location</p>
+                        <p className="text-xs text-green-600">Only people within 50km can see this task</p>
+                      </div>
+                    </div>
+
+                    <Button type="submit" disabled={isCreating || !userLocation} className="w-full bg-[#2ec2b3] hover:bg-[#28a399]">
+                      {isCreating ? 'Posting...' : 'Post Task Now'}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </div>
       </header>
@@ -385,98 +557,186 @@ const Tasks = () => {
         )}
 
         <ScrollArea className="h-[calc(100vh-140px)] sm:h-[calc(100vh-180px)] pr-1 sm:pr-4">
-          <div className="grid gap-3 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {tasks.length === 0 ? (
-              <Card className="col-span-full">
-                <CardContent className="py-12 sm:py-20 text-center">
-                  <ClipboardList className="h-14 w-14 sm:h-20 sm:w-20 mx-auto text-gray-300 mb-3" />
-                  <p className="text-base sm:text-xl text-gray-600">No tasks nearby</p>
-                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Be the first to post one!</p>
-                </CardContent>
-              </Card>
-            ) : (
-              tasks.map((task) => (
-                <Card key={task.id} className="shadow-md hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden">
-                  <CardHeader className="bg-gradient-to-r from-[#2ec2b3]/5 to-cyan-50 p-3 sm:p-4">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0 flex-1">
-                        <CardTitle className="text-base sm:text-lg truncate">{task.title}</CardTitle>
-                        <CardDescription className="text-xs sm:text-sm mt-0.5">
-                          by <strong className="truncate">{task.profiles.full_name}</strong> · {formatDistanceToNow(new Date(task.created_at), { addSuffix: true })}
-                        </CardDescription>
-                        {task.accepter && <p className="text-xs sm:text-sm text-[#2ec2b3] font-medium mt-1 truncate">Accepted by {task.accepter.full_name}</p>}
-                      </div>
-                      {task.status === 'in_progress' && <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs flex-shrink-0">In Progress</Badge>}
-                      {task.status === 'completed' && <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs flex-shrink-0">Completed</Badge>}
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="p-3 sm:p-4 pt-3 space-y-3">
-                    <p className="text-gray-700 leading-relaxed text-sm line-clamp-3">{task.description}</p>
-
-                    {task.payment_amount && (
-                      <div className="flex items-center font-bold text-[#2ec2b3] text-base sm:text-lg">
-                        <DollarSign className="h-4 w-4 sm:h-5 sm:w-5" />
-                        ₱{task.payment_amount.toFixed(2)}
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
-                      <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-[#2ec2b3]" />
-                      <span>Nearby location</span>
-                    </div>
-
-                    {task.location_lat && task.location_lng && (
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => openTaskMap(task)} className="flex-1 text-xs sm:text-sm h-8 sm:h-9">
-                          <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Map
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => getDirections(task)} className="flex-1 text-xs sm:text-sm h-8 sm:h-9">
-                          <Navigation className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Go
-                        </Button>
-                      </div>
-                    )}
-
-                    <div className="pt-3 border-t space-y-2">
-                      {/* Your own task controls */}
-                      {task.creator_id === user.id && task.status === 'open' && (
-                        <Button variant="destructive" size="sm" onClick={() => { setTaskToDelete(task); setDeleteDialogOpen(true); }} className="w-full text-xs sm:text-sm h-8 sm:h-9">
-                          <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Delete Task
-                        </Button>
-                      )}
-
-                      {task.status === 'open' && task.creator_id !== user.id && (
-                        <Button onClick={() => handleAcceptTask(task.id)} className="w-full bg-[#2ec2b3] hover:bg-[#28a399] text-xs sm:text-sm h-8 sm:h-9">
-                          Accept Task
-                        </Button>
-                      )}
-                      {task.status === 'in_progress' && task.accepted_by === user.id && (
-                        <Button onClick={() => handleCompleteTask(task.id)} className="w-full bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-9">
-                          <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Mark Complete
-                        </Button>
-                      )}
-                      {task.status === 'in_progress' && task.creator_id === user.id && (
-                        <Button onClick={() => handleCompleteTask(task.id)} className="w-full bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-9">
-                          <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Confirm Done
-                        </Button>
-                      )}
-                      {task.status === 'completed' && task.creator_id === user.id && (
-                        <Button variant="outline" onClick={() => { setTaskToRate(task); setRatingDialogOpen(true); }} className="w-full border-[#2ec2b3] text-[#2ec2b3] hover:bg-teal-50 text-xs sm:text-sm h-8 sm:h-9">
-                          <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Rate Worker
-                        </Button>
-                      )}
-                      {task.creator_id === user.id && task.status !== 'open' && (
-                        <div className="text-center py-2 bg-teal-50 rounded-lg text-[#2ec2b3] font-medium text-xs sm:text-sm">Your Task</div>
-                      )}
-                      {task.status === 'completed' && (
-                        <div className="text-center py-2 bg-green-50 rounded-lg text-green-700 font-medium text-xs sm:text-sm">Task Completed</div>
-                      )}
-                    </div>
+          {isLoadingTasks ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#2ec2b3] border-t-transparent mx-auto"></div>
+                <p className="mt-4 text-[#2ec2b3] font-semibold">Loading tasks...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {tasks.length === 0 ? (
+                <Card className="col-span-full">
+                  <CardContent className="py-12 sm:py-20 text-center">
+                    <ClipboardList className="h-14 w-14 sm:h-20 sm:w-20 mx-auto text-gray-300 mb-3" />
+                    <p className="text-base sm:text-xl text-gray-600">No tasks nearby</p>
+                    <p className="text-xs sm:text-sm text-gray-400 mt-1">Be the first to post one!</p>
                   </CardContent>
                 </Card>
-              ))
-            )}
-          </div>
+              ) : (
+                tasks.map((task) => (
+                  <Card key={task.id} className="shadow-md hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden">
+                    <CardHeader className="bg-gradient-to-r from-[#2ec2b3]/5 to-cyan-50 p-3 sm:p-4">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="text-base sm:text-lg truncate">{task.title}</CardTitle>
+                          <CardDescription className="text-xs sm:text-sm mt-0.5">
+                            by <strong className="truncate">{task.profiles.full_name}</strong> · {formatDistanceToNow(new Date(task.created_at), { addSuffix: true })}
+                          </CardDescription>
+                          {task.accepter && <p className="text-xs sm:text-sm text-[#2ec2b3] font-medium mt-1 truncate">Accepted by {task.accepter.full_name}</p>}
+                        </div>
+                        {task.status === 'in_progress' && <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs flex-shrink-0">In Progress</Badge>}
+                        {task.status === 'pending_completion' && <Badge className="bg-purple-100 text-purple-800 text-[10px] sm:text-xs flex-shrink-0">Pending Review</Badge>}
+                        {task.status === 'completed' && <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs flex-shrink-0">Completed</Badge>}
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="p-3 sm:p-4 pt-3 space-y-3">
+                      <p className="text-gray-700 leading-relaxed text-sm line-clamp-3">{task.description}</p>
+
+                      {task.payment_amount && (
+                        <div className="flex items-center font-bold text-[#2ec2b3] text-base sm:text-lg">
+                          <DollarSign className="h-4 w-4 sm:h-5 sm:w-5" />
+                          ₱{task.payment_amount.toFixed(2)}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
+                        <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-[#2ec2b3]" />
+                        <span>Nearby location</span>
+                      </div>
+
+                      {task.location_lat && task.location_lng && (
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => openTaskMap(task)} className="flex-1 text-xs sm:text-sm h-8 sm:h-9">
+                            <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Map
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => getDirections(task)} className="flex-1 text-xs sm:text-sm h-8 sm:h-9">
+                            <Navigation className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Go
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="pt-3 border-t space-y-2">
+                        {task.creator_id === user.id && task.status === 'open' && (
+                          <Button variant="destructive" size="sm" onClick={() => { setTaskToDelete(task); setDeleteDialogOpen(true); }} className="w-full text-xs sm:text-sm h-8 sm:h-9">
+                            <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Delete Task
+                          </Button>
+                        )}
+
+                        {task.status === 'open' && task.creator_id !== user.id && (
+                          <>
+                            <Button onClick={() => handleAcceptTask(task.id)} className="w-full bg-[#2ec2b3] hover:bg-[#28a399] text-xs sm:text-sm h-8 sm:h-9">
+                              Accept Task
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => handleMessageUser(task.creator_id)} 
+                              className="w-full text-xs sm:text-sm h-8 sm:h-9"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Message Poster
+                            </Button>
+                          </>
+                        )}
+                        
+                        {task.status === 'in_progress' && task.accepted_by !== user.id && task.creator_id !== user.id && (
+                          <div className="text-center py-2 bg-gray-100 rounded-lg text-gray-600 font-medium text-xs sm:text-sm">
+                            Task Pending
+                          </div>
+                        )}
+                        
+                        {task.status === 'in_progress' && task.accepted_by === user.id && (
+                          <>
+                            <Button onClick={() => handleCompleteTask(task.id)} className="w-full bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-9">
+                              <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Mark as Done
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => handleMessageUser(task.creator_id)} 
+                              className="w-full text-xs sm:text-sm h-8 sm:h-9"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Message Poster
+                            </Button>
+                          </>
+                        )}
+                        
+                        {task.status === 'pending_completion' && task.accepted_by === user.id && (
+                          <>
+                            <div className="text-center py-2 bg-purple-50 rounded-lg text-purple-700 font-medium text-xs sm:text-sm">
+                              Waiting for Confirmation
+                            </div>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => handleMessageUser(task.creator_id)} 
+                              className="w-full text-xs sm:text-sm h-8 sm:h-9"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Message Poster
+                            </Button>
+                          </>
+                        )}
+                        
+                        {task.status === 'pending_completion' && task.creator_id === user.id && (
+                          <>
+                            <Button onClick={() => handleCompleteTask(task.id)} className="w-full bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-8 sm:h-9">
+                              <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Confirm Completed
+                            </Button>
+                            {task.accepted_by && (
+                              <Button 
+                                variant="outline" 
+                                onClick={() => handleMessageUser(task.accepted_by!)} 
+                                className="w-full text-xs sm:text-sm h-8 sm:h-9"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Message Worker
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        
+                        {task.status === 'in_progress' && task.creator_id === user.id && (
+                          <>
+                            <div className="text-center py-2 bg-teal-50 rounded-lg text-[#2ec2b3] font-medium text-xs sm:text-sm">
+                              In Progress - Waiting for Worker
+                            </div>
+                            {task.accepted_by && (
+                              <Button 
+                                variant="outline" 
+                                onClick={() => handleMessageUser(task.accepted_by!)} 
+                                className="w-full text-xs sm:text-sm h-8 sm:h-9"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Message Worker
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        
+                        {task.status === 'completed' && task.creator_id === user.id && (
+                          <>
+                            <Button variant="outline" onClick={() => { setTaskToRate(task); setRatingDialogOpen(true); }} className="w-full border-[#2ec2b3] text-[#2ec2b3] hover:bg-teal-50 text-xs sm:text-sm h-8 sm:h-9">
+                              <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Rate Worker
+                            </Button>
+                            {task.accepted_by && (
+                              <Button 
+                                variant="outline" 
+                                onClick={() => handleMessageUser(task.accepted_by!)} 
+                                className="w-full text-xs sm:text-sm h-8 sm:h-9"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Message Worker
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        
+                        {task.status === 'completed' && (
+                          <div className="text-center py-2 bg-green-50 rounded-lg text-green-700 font-medium text-xs sm:text-sm">Task Completed</div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          )}
         </ScrollArea>
       </main>
 

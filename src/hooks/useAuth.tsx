@@ -1,3 +1,4 @@
+// src/hooks/useAuth.tsx
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
@@ -29,35 +30,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        // Fetch user role when session changes
-        if (session?.user) {
-          setTimeout(() => {
-            checkUserRole(session.user.id);
-          }, 0);
-        } else {
-          setIsAdmin(false);
-          setLoading(false);
-        }
-      }
-    );
-
-    // Check for existing session
+    // Check current session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
+      setLoading(false);
+
       if (session?.user) {
         checkUserRole(session.user.id);
-      } else {
-        setLoading(false);
       }
     });
+
+    // Listen to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+
+        if (session?.user) {
+          checkUserRole(session.user.id);
+        } else {
+          setIsAdmin(false);
+        }
+      }
+    );
 
     return () => subscription.unsubscribe();
   }, []);
@@ -79,27 +76,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       console.error('Error checking user role:', error);
       setIsAdmin(false);
-    } finally {
-      setLoading(false);
     }
   };
 
   const signOut = async (skipConfirmation = false) => {
     if (!skipConfirmation) {
-      return; // Let the component handle confirmation
+      return; // Let the component show confirmation dialog
     }
+
     await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setIsAdmin(false);
-    
-    // Show toast notification
-    const { toast } = await import('@/hooks/use-toast');
-    toast({
-      title: "Signed out successfully",
-      description: "You have been logged out of your account.",
-    });
-    
     navigate('/');
   };
 
