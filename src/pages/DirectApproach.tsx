@@ -23,7 +23,7 @@ interface Approach {
   created_at: string;
   media_url: string | null;
   media_type: 'image' | 'video' | null;
-}
+} 
 
 interface Message {
   id: string;
