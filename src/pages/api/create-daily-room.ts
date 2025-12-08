@@ -81,24 +81,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Generate meeting token for this user
-    const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DAILY_API_KEY}`,
-      },
-      body: JSON.stringify({
-        properties: {
-          room_name: roomName,
-          user_name: userName,
-          user_id: userId,
-          is_owner: false,
-          exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
-          enable_knocking: false,
-          enable_prejoin_ui: false,
-        },
-      }),
-    });
+    // Generate meeting token for this user
+const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${DAILY_API_KEY}`,
+  },
+  body: JSON.stringify({
+    // ← Flat object, no "properties" wrapper!
+    room_name: roomName,
+    user_name: userName,
+    user_id: userId,
+    is_owner: false,
+    exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
+    enable_knocking: false,
+    enable_prejoin_ui: false,
+  }),
+});
 
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
