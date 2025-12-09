@@ -355,40 +355,47 @@ const Messages = () => {
         return;
     }
     
+    console.log('Starting video call with:', selectedFriend.profiles.full_name);
     setCallStatus('calling');
     
-        try {
-            const roomName = [user.id, selectedFriend.profiles.id].sort().join('-') + '-private';
-            
-            // Create a call record in your database
-            const { data: call, error } = await supabase
-                .from('calls')
-                .insert({
-                    caller_id: user.id,
-                    receiver_id: selectedFriend.profiles.id,
-                    room_name: roomName,
-                    room_url: `https://communitymatch.daily.co/${roomName}`, // Add this
-                    status: 'ringing'
-                })
-                .select()
-                .single();
+    try {
+        const roomName = [user.id, selectedFriend.profiles.id].sort().join('-') + '-private';
+        console.log('Creating room:', roomName);
+        
+        // Create a call record in your database
+        const { data: call, error } = await supabase
+            .from('calls')
+            .insert({
+                caller_id: user.id,
+                receiver_id: selectedFriend.profiles.id,
+                room_name: roomName,
+                room_url: `https://communitymatch.daily.co/${roomName}`,
+                status: 'ringing'
+            })
+            .select()
+            .single();
 
-            if (error) {
-                setCallStatus('idle');
-                toast({ title: 'Call failed', description: error.message, variant: 'destructive' });
-                return;
-            }
-
-            setActiveCall(call);
-            setTimeout(() => {
-                setVideoCallOpen(true);
-            }, 500);
-
-        } catch (err: any) {
+        if (error) {
+            console.error('Supabase error:', error);
             setCallStatus('idle');
-            toast({ title: 'Call failed', description: err.message, variant: 'destructive' });
+            toast({ title: 'Call failed', description: error.message, variant: 'destructive' });
+            return;
         }
-    };
+
+        console.log('Call record created:', call);
+        setActiveCall(call);
+        
+        setTimeout(() => {
+            console.log('Opening video call dialog');
+            setVideoCallOpen(true);
+        }, 500);
+
+    } catch (err: any) {
+        console.error('Video call error:', err);
+        setCallStatus('idle');
+        toast({ title: 'Call failed', description: err.message, variant: 'destructive' });
+    }
+};
 
     const handleIncomingCallAccept = async (call: Call, profile: CallerProfile) => {
         setCallStatus('ongoing');

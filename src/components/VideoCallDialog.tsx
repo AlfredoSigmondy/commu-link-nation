@@ -40,30 +40,26 @@ export const VideoCallDialog = ({
     onOpenChange(false);
   }, [onOpenChange]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
+    if (!open) {
       if (callFrameRef.current) {
-        callFrameRef.current.leave();
-        callFrameRef.current.destroy();
+        leaveCall();
       }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!open || !frameRef.current) {
-      if (callFrameRef.current) leaveCall();
       return;
     }
 
     let mounted = true;
-    let cleanupInterval: NodeJS.Timeout;
+    let joinAttempts = 0;
+    const maxAttempts = 3;
 
     const startCall = async () => {
+      if (!frameRef.current) return;
+      
       try {
         setLoading(true);
         setError('');
 
+        // Try to get room URL and token
         const res = await fetch('/api/create-daily-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -75,19 +71,20 @@ export const VideoCallDialog = ({
         });
 
         if (!res.ok) {
-          const err = await res.text();
-          throw new Error(err || 'Failed to create room');
+          const errorData = await res.json();
+          throw new Error(errorData.error || 'Failed to create room');
         }
 
         const { url, token } = await res.json();
 
-        // Destroy existing frame if any
+        // Clean up existing frame
         if (callFrameRef.current) {
           callFrameRef.current.leave();
           callFrameRef.current.destroy();
+          callFrameRef.current = null;
         }
 
-        // Create new frame
+        // Create new Daily iframe
         const callFrame = DailyIframe.createFrame(frameRef.current!, {
           showLeaveButton: false,
           showFullscreenButton: true,
@@ -102,73 +99,74 @@ export const VideoCallDialog = ({
 
         callFrameRef.current = callFrame;
 
-        // Event listeners
+        // Set up event listeners
         callFrame
-          .on('joined-meeting', () => {
+          .on('loaded', () => {
+            console.log('Daily iframe loaded');
+          })
+          .on('joining-meeting', () => {
+            console.log('Joining meeting...');
+          })
+          .on('joined-meeting', (event) => {
+            console.log('Successfully joined meeting:', event);
             if (mounted) {
               setLoading(false);
               setCallStarted(true);
-              setMicOn(callFrame.localAudio() ?? true);
-              setCamOn(callFrame.localVideo() ?? true);
+              setMicOn(callFrame.localAudio());
+              setCamOn(callFrame.localVideo());
             }
           })
-          .on('participant-joined', (ev: any) => {
-            if (mounted) {
-              console.log('Participant joined:', ev.participant.user_name);
-            }
+          .on('participant-joined', (event) => {
+            console.log('Participant joined:', event?.participant?.user_name);
           })
-          .on('participant-left', (ev: any) => {
-            if (mounted) {
-              console.log('Participant left:', ev.participant.user_name);
-              // Auto leave if all other participants left
-              if (callFrame.participants()?.local) {
-                const participants = Object.values(callFrame.participants());
-                if (participants.length <= 1) {
-                  leaveCall();
-                }
-              }
-            }
+          .on('participant-left', (event) => {
+            console.log('Participant left:', event?.participant?.user_name);
           })
-          .on('error', (e: any) => {
+          .on('error', (errorEvent) => {
+            console.error('Daily error:', errorEvent);
             if (mounted) {
-              console.error('Daily error:', e);
-              setError(e?.error?.message || 'Connection failed');
+              setError(errorEvent?.errorMsg || 'Connection failed');
               setLoading(false);
+            }
+          })
+          .on('left-meeting', () => {
+            console.log('Left meeting');
+            if (mounted) {
+              leaveCall();
             }
           });
 
         // Join the call
+        console.log('Attempting to join call with token...');
         await callFrame.join({
           url,
           token,
           userName: userName || 'User',
-          audioSource: micOn,
-          videoSource: camOn,
         });
 
-        // Set up cleanup interval to check call state
-        cleanupInterval = setInterval(() => {
-          if (callFrame.meetingState() === 'left') {
-            leaveCall();
-          }
-        }, 5000);
-
       } catch (err: any) {
+        console.error('Failed to start call:', err);
         if (mounted) {
-          console.error('Video call error:', err);
-          setError(err.message || 'Failed to start call');
+          setError(err.message || 'Failed to start video call');
           setLoading(false);
+          
+          // Retry logic
+          if (joinAttempts < maxAttempts) {
+            joinAttempts++;
+            setTimeout(startCall, 1000 * joinAttempts); // Exponential backoff
+          }
         }
       }
     };
 
-    startCall();
+    if (open) {
+      startCall();
+    }
 
     return () => {
       mounted = false;
-      if (cleanupInterval) clearInterval(cleanupInterval);
     };
-  }, [open, userId, friendId, userName, leaveCall, micOn, camOn]);
+  }, [open, userId, friendId, userName, leaveCall]);
 
   const toggleMic = () => {
     if (callFrameRef.current) {
@@ -191,39 +189,42 @@ export const VideoCallDialog = ({
       <DialogContent className="max-w-6xl w-[95vw] h-[90vh] p-0 bg-black rounded-2xl overflow-hidden border-0">
         <div ref={frameRef} className="w-full h-full bg-black" />
 
-        {/* Loading */}
+        {/* Loading Overlay */}
         {loading && (
-          <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-50">
-            <div className="text-center text-white">
-              <Loader2 className="h-16 w-16 animate-spin mx-auto mb-6" />
-              <p className="text-2xl font-medium">Calling {friendName}...</p>
-              <p className="text-gray-400 mt-2">Setting up secure video call</p>
-            </div>
+          <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-50">
+            <Loader2 className="h-16 w-16 animate-spin text-[#2ec2b3] mb-6" />
+            <p className="text-2xl font-medium text-white mb-2">Setting up call with {friendName}...</p>
+            <p className="text-gray-400">This may take a few seconds</p>
           </div>
         )}
 
-        {/* Error */}
+        {/* Error Overlay */}
         {error && (
           <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-50">
-            <div className="text-center text-white max-w-md">
+            <div className="text-center text-white max-w-md p-6">
               <div className="bg-red-500/20 border border-red-500 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
-                <PhoneOff className="h-10 w-10" />
+                <PhoneOff className="h-10 w-10 text-red-500" />
               </div>
               <h3 className="text-2xl font-bold mb-3">Call Failed</h3>
-              <p className="text-gray-300 mb-6">{error}</p>
-              <Button onClick={leaveCall} size="lg" className="bg-red-500 hover:bg-red-600">
-                Close Call
-              </Button>
+              <p className="text-gray-300 mb-4">{error}</p>
+              <div className="flex gap-3">
+                <Button onClick={() => setError('')} variant="outline" className="flex-1">
+                  Try Again
+                </Button>
+                <Button onClick={leaveCall} className="flex-1 bg-red-500 hover:bg-red-600">
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Controls - Only show when call is active */}
+        {/* Controls */}
         {callStarted && (
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-black/80 backdrop-blur-xl border border-white/10 rounded-full px-6 py-4 shadow-2xl z-40">
             <Button
               size="icon"
-              variant={micOn ? 'default' : 'destructive'}
+              variant={micOn ? "default" : "destructive"}
               className="h-14 w-14 rounded-full"
               onClick={toggleMic}
             >
@@ -232,7 +233,7 @@ export const VideoCallDialog = ({
 
             <Button
               size="icon"
-              variant={camOn ? 'default' : 'destructive'}
+              variant={camOn ? "default" : "destructive"}
               className="h-14 w-14 rounded-full"
               onClick={toggleCam}
             >
@@ -250,12 +251,10 @@ export const VideoCallDialog = ({
           </div>
         )}
 
-        {/* Call info */}
-        {callStarted && (
-          <div className="absolute top-6 left-6 bg-black/70 backdrop-blur rounded-full px-5 py-2 text-white text-lg font-medium z-40">
-            ✓ Connected to {friendName}
-          </div>
-        )}
+        {/* Call Status */}
+        <div className="absolute top-6 left-6 bg-black/70 backdrop-blur rounded-full px-5 py-2 text-white text-lg font-medium z-40">
+          {callStarted ? `Call with ${friendName}` : `Connecting to ${friendName}...`}
+        </div>
       </DialogContent>
     </Dialog>
   );
