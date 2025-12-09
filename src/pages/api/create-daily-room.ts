@@ -27,7 +27,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // 1. Try to fetch existing room
+<<<<<<< HEAD
     const roomUrl = `https://communitymatch.daily.co/${roomName}`;
+=======
+    let roomUrl = `https://communitymatch.daily.co/${roomName}`;
+>>>>>>> parent of e0e6248 (new)
 
     const existingRoomRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
