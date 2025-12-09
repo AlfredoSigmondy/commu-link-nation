@@ -6,17 +6,48 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, MapPin, DollarSign, Check, Navigation, Star, ClipboardList, Trash2, Locate, Eye, MessageCircle } from 'lucide-react';
+import { 
+  ArrowLeft, Plus, MapPin, PhilippinePeso, Check, Navigation, Star, 
+  ClipboardList, Trash2, Locate, Eye, MessageCircle, Package, 
+  ShoppingCart, Sparkles, Truck, Wrench, Laptop, PawPrint, 
+  HelpCircle, Filter, ChevronDown, ChevronUp, Grid3x3 
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { TaskRatingDialog } from '@/components/TaskRatingDialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+const TASK_CATEGORIES = [
+  { id: 'delivery', name: 'Delivery', icon: Package, color: 'bg-orange-500' },
+  { id: 'groceries', name: 'Groceries', icon: ShoppingCart, color: 'bg-green-500' },
+  { id: 'cleaning', name: 'Cleaning', icon: Sparkles, color: 'bg-blue-500' },
+  { id: 'moving', name: 'Moving Help', icon: Truck, color: 'bg-purple-500' },
+  { id: 'assembly', name: 'Assembly', icon: Wrench, color: 'bg-yellow-600' },
+  { id: 'tech', name: 'Tech Help', icon: Laptop, color: 'bg-indigo-500' },
+  { id: 'pet', name: 'Pet Care', icon: PawPrint, color: 'bg-pink-500' },
+  { id: 'other', name: 'Other', icon: HelpCircle, color: 'bg-gray-500' },
+] as const;
+
+// NEW: Mobile-optimized categories with shorter names
+const MOBILE_CATEGORIES = [
+  { id: 'delivery', name: 'Delivery', icon: Package, color: 'bg-orange-500', shortName: 'Delivery' },
+  { id: 'groceries', name: 'Groceries', icon: ShoppingCart, color: 'bg-green-500', shortName: 'Groceries' },
+  { id: 'cleaning', name: 'Cleaning', icon: Sparkles, color: 'bg-blue-500', shortName: 'Clean' },
+  { id: 'moving', name: 'Moving', icon: Truck, color: 'bg-purple-500', shortName: 'Moving' },
+  { id: 'assembly', name: 'Assembly', icon: Wrench, color: 'bg-yellow-600', shortName: 'Assembly' },
+  { id: 'tech', name: 'Tech', icon: Laptop, color: 'bg-indigo-500', shortName: 'Tech' },
+  { id: 'pet', name: 'Pet Care', icon: PawPrint, color: 'bg-pink-500', shortName: 'Pet' },
+  { id: 'other', name: 'Other', icon: HelpCircle, color: 'bg-gray-500', shortName: 'Other' },
+] as const;
+
+type CategoryId = typeof TASK_CATEGORIES[number]['id'];
 
 interface Task {
   id: string;
@@ -32,6 +63,7 @@ interface Task {
   accepted_by: string | null;
   profiles: { full_name: string };
   accepter?: { full_name: string } | null;
+  category: CategoryId;
 }
 
 const TaskCard: React.FC<{ task: Task, isCreatorView: boolean }> = ({ task, isCreatorView }) => {
@@ -85,6 +117,21 @@ const Tasks = () => {
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<CategoryId | 'all'>('all');
+  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(false);
+
+  // NEW: Detect mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileView(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     const token = import.meta.env.VITE_MAPBOX_PUBLIC_TOKEN;
@@ -170,8 +217,13 @@ const Tasks = () => {
       if (userLocation) {
         filtered = tasksWithAccepters.filter((task: Task) => {
           if (!task.location_lat || !task.location_lng) return true;
-          const distance = calculateDistance(userLocation.lat, userLocation.lng, task.location_lat, task.location_lng);
-          return distance <= 50_000; // 50km (you had 50m before — likely meant 50km)
+          const distance = calculateDistance(
+            userLocation.lat,
+            userLocation.lng,
+            task.location_lat,
+            task.location_lng
+          );
+          return distance <= 5_000; // 5km radius
         });
       }
 
@@ -181,6 +233,25 @@ const Tasks = () => {
     } finally {
       setIsLoadingTasks(false);
     }
+  };
+
+  // Get category icon
+  const getCategoryIcon = (categoryId: CategoryId) => {
+    const category = TASK_CATEGORIES.find(cat => cat.id === categoryId);
+    const IconComponent = category?.icon || HelpCircle;
+    return <IconComponent className="h-3.5 w-3.5 sm:h-4 sm:w-4" />;
+  };
+
+  // Get category color
+  const getCategoryColor = (categoryId: CategoryId) => {
+    const category = TASK_CATEGORIES.find(cat => cat.id === categoryId);
+    return category?.color || 'bg-gray-500';
+  };
+
+  // Get filtered tasks based on selected category
+  const getFilteredTasks = () => {
+    if (selectedCategory === 'all') return tasks;
+    return tasks.filter(task => task.category === selectedCategory);
   };
 
   const getMyCreatedTasks = (): Task[] => {
@@ -197,6 +268,7 @@ const Tasks = () => {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
+  // Handle create task with category support
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!userLocation) {
@@ -209,6 +281,7 @@ const Tasks = () => {
     const title = formData.get('title') as string;
     const description = formData.get('description') as string;
     const paymentAmount = formData.get('payment') as string;
+    const category = formData.get('category') as CategoryId;
 
     try {
       const { error } = await supabase.from('tasks').insert({
@@ -220,6 +293,7 @@ const Tasks = () => {
         location_lng: userLocation.lng,
         location_address: "My current location",
         status: 'open',
+        category: category || 'other',
       });
 
       if (error) throw error;
@@ -382,15 +456,22 @@ const Tasks = () => {
         container: mapContainer.current,
         style: 'mapbox://styles/mapbox/streets-v12',
         center: [task.location_lng!, task.location_lat!],
-        zoom: 17,
+        zoom: 13,
       });
 
+      // Task marker
       new mapboxgl.Marker({ color: '#dc2626' })
         .setLngLat([task.location_lng!, task.location_lat!])
-        .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<h3 class="font-bold">${task.title}</h3>`))
+        .setPopup(
+          new mapboxgl.Popup({ offset: 25 }).setHTML(`
+            <h3 class="font-bold text-lg">${task.title}</h3>
+            <p class="text-sm text-gray-600">${task.description}</p>
+          `)
+        )
         .addTo(map.current!)
         .togglePopup();
 
+      // Your location
       if (userLocation) {
         new mapboxgl.Marker({ color: '#2563eb' })
           .setLngLat([userLocation.lng, userLocation.lat])
@@ -398,15 +479,60 @@ const Tasks = () => {
           .addTo(map.current!);
       }
 
-      map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
-      map.current.addControl(new mapboxgl.FullscreenControl());
+      // 5KM RADIUS CIRCLE
+      map.current.on('load', () => {
+        map.current!.addSource('radius', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [task.location_lng!, task.location_lat!],
+            },
+          },
+        });
 
-      if (userLocation) {
+        map.current!.addLayer({
+          id: 'radius-circle',
+          type: 'circle',
+          source: 'radius',
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10, 1000,   // at zoom 10 → ~1km visible
+              15, 5000    // at zoom 15 → full 5km
+            ],
+            'circle-color': '#2ec2b3',
+            'circle-opacity': 0.15,
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#2ec2b3',
+            'circle-stroke-opacity': 0.6,
+          },
+        });
+
+        // Fit map to show radius + your location
         const bounds = new mapboxgl.LngLatBounds();
         bounds.extend([task.location_lng!, task.location_lat!]);
-        bounds.extend([userLocation.lng, userLocation.lat]);
-        map.current!.fitBounds(bounds, { padding: 100, duration: 1500 });
-      }
+
+        if (userLocation) {
+          bounds.extend([userLocation.lng, userLocation.lat]);
+        }
+
+        // Extend bounds to include 5km radius
+        const radiusKm = 5;
+        const earthRadius = 6371;
+        const latOffset = (radiusKm / earthRadius) * (180 / Math.PI);
+        const lngOffset = latOffset / Math.cos((task.location_lat! * Math.PI) / 180);
+
+        bounds.extend([task.location_lng! + lngOffset, task.location_lat! + latOffset]);
+        bounds.extend([task.location_lng! - lngOffset, task.location_lat! - latOffset]);
+
+        map.current!.fitBounds(bounds, { padding: 80, duration: 1500 });
+      });
+
+      map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
     }, 150);
   };
 
@@ -521,16 +647,40 @@ const Tasks = () => {
                       <Label>Description</Label>
                       <Textarea name="description" required placeholder="What needs to be done?" className="min-h-32 mt-1" />
                     </div>
+                    
+                    {/* Category Selection */}
                     <div>
-                      <Label>Payment (₱) <span className="text-gray-400 text-xs">(optional)</span></Label>
-                      <Input name="payment" type="number" step="0.01" placeholder="50.00" className="mt-1" />
+                      <Label>Category</Label>
+                      <Select name="category" required defaultValue="other">
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TASK_CATEGORIES.map((category) => {
+                            const IconComponent = category.icon;
+                            return (
+                              <SelectItem key={category.id} value={category.id}>
+                                <div className="flex items-center gap-2">
+                                  <IconComponent className="h-4 w-4" />
+                                  <span>{category.name}</span>
+                                </div>
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div>
+                      <Label>Payment <span className="text-gray-400 text-xs"></span></Label>
+                      <Input name="payment" type="number" step="0.01" placeholder="₱ 100.00" className="mt-1" />
                     </div>
 
                     <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
                       <Locate className="h-6 w-6 text-green-600" />
                       <div>
                         <p className="font-medium text-green-800">Using your current location</p>
-                        <p className="text-xs text-green-600">Only people within 50km can see this task</p>
+                        <p className="text-xs text-green-600">Only people within 5km can see this task</p>
                       </div>
                     </div>
 
@@ -551,10 +701,121 @@ const Tasks = () => {
           <Card className="mb-4 sm:mb-6 border-orange-200 bg-orange-50">
             <CardContent className="py-3 sm:py-4 flex items-center gap-3">
               <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 flex-shrink-0" />
-              <p className="text-xs sm:text-sm text-orange-800">Enable location to post & see tasks nearby</p>
+              <p className="text-xs sm:text-sm text-orange-800">Enable location to post & see tasks nearby (within 5km)</p>
             </CardContent>
           </Card>
         )}
+
+        {/* Mobile-Adaptive Category Filter Section */}
+        <div className="mb-4 sm:mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {isMobileView ? (
+                <Grid3x3 className="h-4 w-4 text-[#2ec2b3]" />
+              ) : (
+                <Filter className="h-4 w-4 text-[#2ec2b3]" />
+              )}
+              <h2 className="text-sm font-medium text-gray-700">
+                {isMobileView ? 'Categories' : 'Filter by Category'}
+              </h2>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCategoryFilter(!showCategoryFilter)}
+              className="text-xs h-8 gap-1"
+            >
+              {showCategoryFilter ? (
+                <>
+                  <ChevronUp className="h-3 w-3" />
+                  <span className="hidden sm:inline">Hide</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3" />
+                  <span className="hidden sm:inline">Show</span>
+                </>
+              )}
+            </Button>
+          </div>
+          
+          {/* Mobile-Optimized Category Filters */}
+          {showCategoryFilter && (
+            <>
+              {/* "All" Button - Always visible */}
+              <div className="mb-3">
+                <Button
+                  variant={selectedCategory === 'all' ? 'default' : 'outline'}
+                  size={isMobileView ? "sm" : "default"}
+                  onClick={() => setSelectedCategory('all')}
+                  className={`w-full ${selectedCategory === 'all' ? 'bg-[#2ec2b3] hover:bg-[#28a399]' : ''}`}
+                >
+                  <span className="text-sm">All Tasks ({tasks.length})</span>
+                </Button>
+              </div>
+              
+              {/* Category Grid - Mobile optimized */}
+              <div className={`grid ${isMobileView ? 'grid-cols-4 gap-2' : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3'}`}>
+                {MOBILE_CATEGORIES.map((category) => {
+                  const IconComponent = category.icon;
+                  const displayName = isMobileView ? category.shortName : category.name;
+                  return (
+                    <Button
+                      key={category.id}
+                      variant={selectedCategory === category.id ? 'default' : 'outline'}
+                      size={isMobileView ? "sm" : "default"}
+                      onClick={() => setSelectedCategory(category.id)}
+                      className={`
+                        flex flex-col items-center justify-center h-auto p-2 sm:p-3
+                        ${selectedCategory === category.id ? 'bg-[#2ec2b3] hover:bg-[#28a399] border-[#2ec2b3]' : ''}
+                        transition-all duration-200
+                      `}
+                    >
+                      <div className={`${category.color} rounded-full p-2 mb-1 sm:mb-2`}>
+                        <IconComponent className={`${isMobileView ? 'h-4 w-4' : 'h-5 w-5 sm:h-6 sm:w-6'} text-white`} />
+                      </div>
+                      <span className={`${isMobileView ? 'text-[10px] leading-tight' : 'text-xs sm:text-sm'} font-medium truncate w-full text-center`}>
+                        {displayName}
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+              
+              {/* Selected Category Badge */}
+              {selectedCategory !== 'all' && (
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <span>Showing:</span>
+                    <Badge variant="outline" className="flex items-center gap-1 px-2 py-1">
+                      {(() => {
+                        const category = MOBILE_CATEGORIES.find(c => c.id === selectedCategory);
+                        const IconComponent = category?.icon || HelpCircle;
+                        return (
+                          <>
+                            <div className={`${category?.color} rounded-full p-1`}>
+                              <IconComponent className="h-3 w-3 text-white" />
+                            </div>
+                            <span className="font-medium">{category?.name}</span>
+                            <span className="ml-1 text-xs text-gray-500">({getFilteredTasks().length})</span>
+                          </>
+                        );
+                      })()}
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedCategory('all')}
+                    className="text-xs text-[#2ec2b3] hover:text-[#28a399]"
+                  >
+                    Clear filter
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
 
         <ScrollArea className="h-[calc(100vh-140px)] sm:h-[calc(100vh-180px)] pr-1 sm:pr-4">
           {isLoadingTasks ? (
@@ -566,21 +827,30 @@ const Tasks = () => {
             </div>
           ) : (
             <div className="grid gap-3 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {tasks.length === 0 ? (
+              {getFilteredTasks().length === 0 ? (
                 <Card className="col-span-full">
                   <CardContent className="py-12 sm:py-20 text-center">
                     <ClipboardList className="h-14 w-14 sm:h-20 sm:w-20 mx-auto text-gray-300 mb-3" />
-                    <p className="text-base sm:text-xl text-gray-600">No tasks nearby</p>
+                    <p className="text-base sm:text-xl text-gray-600">
+                      {selectedCategory === 'all' 
+                        ? "No tasks nearby" 
+                        : `No ${MOBILE_CATEGORIES.find(c => c.id === selectedCategory)?.name?.toLowerCase()} tasks nearby`}
+                    </p>
                     <p className="text-xs sm:text-sm text-gray-400 mt-1">Be the first to post one!</p>
                   </CardContent>
                 </Card>
               ) : (
-                tasks.map((task) => (
+                getFilteredTasks().map((task) => (
                   <Card key={task.id} className="shadow-md hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden">
                     <CardHeader className="bg-gradient-to-r from-[#2ec2b3]/5 to-cyan-50 p-3 sm:p-4">
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0 flex-1">
-                          <CardTitle className="text-base sm:text-lg truncate">{task.title}</CardTitle>
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center ${getCategoryColor(task.category)}`}>
+                              {getCategoryIcon(task.category)}
+                            </div>
+                            <CardTitle className="text-base sm:text-lg truncate">{task.title}</CardTitle>
+                          </div>
                           <CardDescription className="text-xs sm:text-sm mt-0.5">
                             by <strong className="truncate">{task.profiles.full_name}</strong> · {formatDistanceToNow(new Date(task.created_at), { addSuffix: true })}
                           </CardDescription>
@@ -597,11 +867,9 @@ const Tasks = () => {
 
                       {task.payment_amount && (
                         <div className="flex items-center font-bold text-[#2ec2b3] text-base sm:text-lg">
-                          <DollarSign className="h-4 w-4 sm:h-5 sm:w-5" />
-                          ₱{task.payment_amount.toFixed(2)}
+                          < PhilippinePeso className="h-4 w-4 sm:h-5 sm:w-5" />{task.payment_amount.toFixed(2)}
                         </div>
                       )}
-
                       <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
                         <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-[#2ec2b3]" />
                         <span>Nearby location</span>

@@ -19,9 +19,11 @@ import {
     CheckCheck,
     Clock,
     X,
-    Settings
+    Settings,
+    Phone
 } from 'lucide-react';
 import { VideoCallDialog } from '@/components/VideoCallDialog';
+import IncomingCallDialog from '@/components/IncomingCallDialog';
 import { format } from 'date-fns';
 
 interface Friend {
@@ -46,12 +48,26 @@ interface Message {
     isSending?: boolean;
 }
 
+interface Call {
+  id: string;
+  caller_id: string;
+  receiver_id: string;
+  room_name: string;
+  status: string;
+  created_at: string;
+}
+
+interface CallerProfile {
+  full_name: string;
+  avatar_url: string | null;
+}
+
 const Messages = () => {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { toast } = useToast();
-
+   
     const [friends, setFriends] = useState<Friend[]>([]);
     const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -60,7 +76,10 @@ const Messages = () => {
     const [isUploading, setIsUploading] = useState(false);
     const [videoCallOpen, setVideoCallOpen] = useState(false);
     const [tempMediaBlobUrl, setTempMediaBlobUrl] = useState<string | null>(null);
-
+    const [activeCall, setActiveCall] = useState<Call | null>(null);
+    const [callerProfile, setCallerProfile] = useState<CallerProfile | null>(null);
+    const [callStatus, setCallStatus] = useState<'idle' | 'calling' | 'incoming' | 'ongoing'>('idle');
+    
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -69,7 +88,10 @@ const Messages = () => {
     }, [user, loading, navigate]);
 
     useEffect(() => {
-        if (user) fetchFriends();
+        if (user) {
+            fetchFriends();
+            setupIncomingCallListener();
+        }
     }, [user]);
 
     // Auto-select friend from navigation state
@@ -100,6 +122,39 @@ const Messages = () => {
 
         if (error) toast({ title: 'Error', description: error.message, variant: 'destructive' });
         else setFriends(data || []);
+    };
+
+    const setupIncomingCallListener = () => {
+        const channel = supabase
+            .channel('incoming-calls-realtime')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'calls',
+                    filter: `receiver_id=eq.${user?.id}`,
+                },
+                async (payload) => {
+                    const call = payload.new as Call;
+                    if (call.status !== 'ringing') return;
+
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('full_name, avatar_url')
+                        .eq('id', call.caller_id)
+                        .single();
+
+                    setActiveCall(call);
+                    setCallerProfile(profile);
+                    setCallStatus('incoming');
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     };
 
     const fetchMessages = async () => {
@@ -223,7 +278,7 @@ const Messages = () => {
 
         if (signError) throw signError;
 
-        return data.signedUrl; // ← Use this URL
+        return data.signedUrl;
     } catch (err: any) {
         toast({ 
             title: 'Upload failed', 
@@ -291,6 +346,76 @@ const Messages = () => {
         } catch (err: any) {
             toast({ title: 'Failed to send', description: err.message, variant: 'destructive' });
             setMessages(prev => prev.filter(m => m.id !== tempId));
+        }
+    };
+
+    const initiateVideoCall = async () => {
+    if (!selectedFriend || !user) {
+        toast({ title: 'Error', description: 'Please select a friend to call', variant: 'destructive' });
+        return;
+    }
+    
+    setCallStatus('calling');
+    
+        try {
+            const roomName = [user.id, selectedFriend.profiles.id].sort().join('-') + '-private';
+            
+            // Create a call record in your database
+            const { data: call, error } = await supabase
+                .from('calls')
+                .insert({
+                    caller_id: user.id,
+                    receiver_id: selectedFriend.profiles.id,
+                    room_name: roomName,
+                    room_url: `https://communitymatch.daily.co/${roomName}`, // Add this
+                    status: 'ringing'
+                })
+                .select()
+                .single();
+
+            if (error) {
+                setCallStatus('idle');
+                toast({ title: 'Call failed', description: error.message, variant: 'destructive' });
+                return;
+            }
+
+            setActiveCall(call);
+            setTimeout(() => {
+                setVideoCallOpen(true);
+            }, 500);
+
+        } catch (err: any) {
+            setCallStatus('idle');
+            toast({ title: 'Call failed', description: err.message, variant: 'destructive' });
+        }
+    };
+
+    const handleIncomingCallAccept = async (call: Call, profile: CallerProfile) => {
+        setCallStatus('ongoing');
+        setActiveCall(call);
+        setVideoCallOpen(true);
+        
+        // Update call status to accepted
+        await supabase
+            .from('calls')
+            .update({ status: 'accepted' })
+            .eq('id', call.id);
+    };
+
+    const handleVideoCallClose = () => {
+        setVideoCallOpen(false);
+        setCallStatus('idle');
+        setActiveCall(null);
+        
+        if (activeCall) {
+            // Update call status to ended
+            supabase
+                .from('calls')
+                .update({ status: 'ended' })
+                .eq('id', activeCall.id)
+                .then(() => {
+                    console.log('Call ended');
+                });
         }
     };
 
@@ -373,6 +498,24 @@ const Messages = () => {
 
             <div className="max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6">
                 
+                {/* Incoming Call Dialog */}
+                <IncomingCallDialog
+                    userId={user?.id || ''}
+                    onAccept={handleIncomingCallAccept}
+                />
+
+                {/* Video Call Dialog */}
+                {selectedFriend && (
+                    <VideoCallDialog
+                        open={videoCallOpen}
+                        onOpenChange={setVideoCallOpen}
+                        friendName={selectedFriend.profiles.full_name}
+                        friendId={selectedFriend.profiles.id}
+                        userId={user.id}
+                        userName={user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
+                    />
+                )}
+
                 {/* Mobile Layout */}
                 <div className="lg:hidden">
                     {!selectedFriend ? (
@@ -419,19 +562,24 @@ const Messages = () => {
                                         <Badge className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0">Online</Badge>
                                     </div>
                                 </div>
-                                <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => setVideoCallOpen(true)}>
-                                    <VideoIcon className="h-4 w-4" />
-                                </Button>
+                                <div className="flex gap-2">
+                                    {callStatus === 'calling' ? (
+                                        <Button size="icon" variant="outline" className="h-8 w-8 bg-green-500 text-white hover:bg-green-600">
+                                            <Phone className="h-4 w-4 animate-pulse" />
+                                        </Button>
+                                    ) : (
+                                        <Button 
+                                            size="icon" 
+                                            variant="outline" 
+                                            className="h-8 w-8" 
+                                            onClick={initiateVideoCall}
+                                            disabled={callStatus !== 'idle'}
+                                        >
+                                            <VideoIcon className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
-
-                            <VideoCallDialog
-                                open={videoCallOpen}
-                                onOpenChange={setVideoCallOpen}
-                                friendName={selectedFriend.profiles.full_name}
-                                friendId={selectedFriend.profiles.id}
-                                userId={user!.id}
-                                userName={user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
-                            />
 
                             <ScrollArea className="flex-1 p-3">
                                 <div className="space-y-2">
@@ -506,14 +654,6 @@ const Messages = () => {
                     <Card className="lg:col-span-3 bg-white/95 rounded-2xl shadow-xl flex flex-col overflow-hidden">
                         {selectedFriend ? (
                             <>
-                                <VideoCallDialog
-                                    open={videoCallOpen}
-                                    onOpenChange={setVideoCallOpen}
-                                    friendName={selectedFriend.profiles.full_name}
-                                    friendId={selectedFriend.profiles.id}
-                                    userId={user!.id}
-                                    userName={user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
-                                />
                                 <div className="border-b p-3 sm:p-5 flex items-center justify-between bg-gradient-to-r from-[#2ec2b3]/5">
                                     <div className="flex items-center gap-3 sm:gap-4">
                                         <Avatar className="h-10 w-10 sm:h-12 sm:w-12">
@@ -527,15 +667,30 @@ const Messages = () => {
                                             <Badge className="bg-green-100 text-green-700 text-xs">Online</Badge>
                                         </div>
                                     </div>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => setVideoCallOpen(true)}
-                                        className="flex items-center gap-2"
-                                    >
-                                        <VideoIcon className="h-4 w-4" />
-                                        <span className="hidden sm:inline">Call</span>
-                                    </Button>
+                                    <div className="flex gap-2">
+                                        {callStatus === 'calling' ? (
+                                            <Button
+                                                size="sm"
+                                                variant="default"
+                                                className="bg-green-500 hover:bg-green-600 flex items-center gap-2 animate-pulse"
+                                                disabled
+                                            >
+                                                <Phone className="h-4 w-4" />
+                                                <span>Calling...</span>
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={initiateVideoCall}
+                                                className="flex items-center gap-2"
+                                                disabled={callStatus !== 'idle'}
+                                            >
+                                                <VideoIcon className="h-4 w-4" />
+                                                <span>Video Call</span>
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <ScrollArea className="flex-1 p-3 sm:p-6">

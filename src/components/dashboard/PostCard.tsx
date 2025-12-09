@@ -170,12 +170,19 @@ export function PostCard({ post, currentUserId, onPostUpdate }: PostCardProps) {
     }
   };
 
-  // Navigate to user's profile
-  const goToProfile = () => {
-  navigate(`/public-profile/${post.profiles.id}`);
+
+const goToProfile = () => {
+  if (!post.user_id) {
+    console.error('Post has no user_id!', post);
+    return;
+  }
+
+  if (post.user_id === currentUserId) {
+    navigate('/profile');
+  } else {
+   navigate(`/public-profile/${post.user_id}`);
+  }
 };
-
-
 
   return (
     <>

@@ -199,7 +199,7 @@ const CommunityFeed = () => {
             </div>
 
             <Textarea
-              placeholder={`What's on your mind, ${firstName}?`}
+              placeholder={`What's  concern, ${firstName}?`}
               value={newPost}
               onChange={(e) => setNewPost(e.target.value)}
               className="border-0 resize-none focus-visible:ring-0 text-lg min-h-32 p-0"

@@ -2,11 +2,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const DAILY_API_KEY = process.env.DAILY_API_KEY?.trim();
+const DAILY_DOMAIN = process.env.NEXT_PUBLIC_DAILY_DOMAIN || 'communitymatch.daily.co';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method Not Allssowed' });
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   if (!DAILY_API_KEY) {
@@ -24,21 +25,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const roomName = [userId, friendId].sort().join('-') + '-private';
+  const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
 
   try {
-    // 1. Try to fetch existing room
-<<<<<<< HEAD
-    const roomUrl = `https://communitymatch.daily.co/${roomName}`;
-=======
-    let roomUrl = `https://communitymatch.daily.co/${roomName}`;
->>>>>>> parent of e0e6248 (new)
-
+    // 1. Check if room exists or create it
+    let roomExists = true;
+    
     const existingRoomRes = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
     });
 
-    // 2. Create room only if it doesn't exist
     if (existingRoomRes.status === 404) {
+      roomExists = false;
+      // Create the room since it doesn't exist
       const createRes = await fetch('https://api.daily.co/v1/rooms', {
         method: 'POST',
         headers: {
@@ -49,14 +48,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           name: roomName,
           privacy: 'private',
           properties: {
-            exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24 hours (more forgiving)
+            exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24 hours
             eject_at_room_exp: true,
             enable_chat: true,
-            enable_knocking: false,
-            enable_prejoin_ui: false,        // ← Important for token-based joins
+            enable_knocking: true, // Enable knocking for private calls
+            enable_prejoin_ui: false,
             enable_network_ui: false,
             enable_noise_cancellation: true,
             lang: 'en',
+            start_audio_off: false,
+            start_video_off: false,
           },
         }),
       });
@@ -66,9 +67,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Failed to create Daily room:', err);
         return res.status(500).json({ error: 'Failed to create room' });
       }
+    } else if (!existingRoomRes.ok) {
+      // Handle other API errors
+      const err = await existingRoomRes.text();
+      console.error('Failed to check room:', err);
+      return res.status(500).json({ error: 'Failed to check room existence' });
     }
 
-    // 3. Always generate a fresh meeting token (this is perfect)
+    // 2. Generate meeting token for both users
     const tokenRes = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
       headers: {
@@ -80,10 +86,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           room_name: roomName,
           user_name: userName,
           user_id: userId,
-          is_owner: false,
           exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24h token
           enable_knocking: false,
-          enable_prejoin_ui: false,   // ← Doubly ensure no lobby
+          enable_prejoin_ui: false,
         },
       }),
     });
@@ -101,6 +106,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       url: roomUrl,
       token,
       roomName,
+      roomExists: !roomExists ? 'created' : 'reused',
     });
   } catch (error: any) {
     console.error('Unexpected error in create-daily-room:', error);

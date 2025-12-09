@@ -72,7 +72,7 @@ const Dashboard = () => {
                 <Home className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
               </div>
               <h1 className="text-lg sm:text-2xl font-bold text-[#2ec2b3] hidden sm:block">
-                Community Match
+                CommUnity
               </h1>
             </div>
 

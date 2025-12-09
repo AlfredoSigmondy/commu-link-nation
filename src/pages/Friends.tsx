@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom'; // Added Link import
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, UserPlus, Check, X, Users, Sparkles, LogOut, UserMinus, Search } from 'lucide-react';
+import { ArrowLeft, UserPlus, Check, X, Users, Sparkles, LogOut, UserMinus, Search, ExternalLink } from 'lucide-react'; // Added ExternalLink
 import { SignOutDialog } from '@/components/SignOutDialog';
 import { NotificationBell } from '@/components/NotificationBell';
 
@@ -215,7 +215,7 @@ const Friends = () => {
 
       toast({
         title: 'Friend request sent!',
-        description: 'They’ll be notified.',
+        description: 'They\'ll be notified.',
       });
 
       setSearchResults(prevResults => prevResults.filter(p => p.id !== friendId)); // Remove from search results
@@ -270,7 +270,7 @@ const Friends = () => {
         if (insertError) throw insertError;
       }
 
-      toast({ title: 'You’re now friends!' });
+      toast({ title: 'You\'re now friends!' });
       // Re-fetch all lists to update UI
       fetchFriends();
       fetchPendingRequests();
@@ -337,6 +337,11 @@ const Friends = () => {
     setUnfriendDialogOpen(true);
   };
 
+  // NEW: Function to navigate to user profile
+  const navigateToProfile = (userId: string) => {
+    navigate(`/profile/${userId}`);
+  };
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 to-cyan-50">
       <div className="text-center">
@@ -400,14 +405,22 @@ const Friends = () => {
                 {suggestions.map((person) => (
                   <div key={person.id} className="flex items-center justify-between p-3 bg-white rounded-xl shadow-sm hover:shadow-md transition-all">
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                      <Avatar className="h-10 w-10 ring-2 ring-[#2ec2b3]/20 flex-shrink-0">
+                      <Avatar 
+                        className="h-10 w-10 ring-2 ring-[#2ec2b3]/20 flex-shrink-0 cursor-pointer hover:ring-[#2ec2b3]/40 transition-all"
+                        onClick={() => navigateToProfile(person.id)}
+                      >
                         <AvatarImage src={person.avatar_url || ''} />
                         <AvatarFallback className="bg-[#2ec2b3] text-white text-sm">
                           {person.full_name[0].toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm truncate">{person.full_name}</p>
+                        <button 
+                          onClick={() => navigateToProfile(person.id)}
+                          className="font-semibold text-gray-900 text-sm truncate hover:text-[#2ec2b3] transition-colors text-left"
+                        >
+                          {person.full_name}
+                        </button>
                         <p className="text-[10px] sm:text-xs text-gray-500">Suggested</p>
                       </div>
                     </div>
@@ -454,14 +467,33 @@ const Friends = () => {
                   ) : (
                     friends.map((friend) => (
                       <div key={friend.id} className="flex items-center justify-between p-3 bg-gray-50/70 rounded-xl hover:bg-teal-50 transition-colors">
-                        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-                          <Avatar className="h-10 w-10 flex-shrink-0">
+                        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+                          <Avatar 
+                            className="h-10 w-10 flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                            onClick={() => navigateToProfile(friend.friend_id)}
+                          >
                             <AvatarImage src={friend.profiles.avatar_url || ''} />
                             <AvatarFallback className="bg-[#2ec2b3] text-white text-sm">
                               {friend.profiles.full_name[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="font-semibold text-gray-800 text-sm truncate">{friend.profiles.full_name}</span>
+                          <div className="min-w-0 flex-1">
+                            <button 
+                              onClick={() => navigateToProfile(friend.friend_id)}
+                              className="font-semibold text-gray-800 text-sm truncate hover:text-[#2ec2b3] transition-colors text-left w-full"
+                            >
+                              {friend.profiles.full_name}
+                            </button>
+                            <div className="flex items-center gap-1 mt-1">
+                              <button 
+                                onClick={() => navigateToProfile(friend.friend_id)}
+                                className="text-xs text-gray-500 hover:text-[#2ec2b3] flex items-center gap-1"
+                              >
+                                View Profile
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={() => navigate('/messages')} className="text-xs h-8">
@@ -499,15 +531,23 @@ const Friends = () => {
                   ) : (
                     sentRequests.map((request) => (
                       <div key={request.id} className="flex items-center justify-between p-3 bg-orange-50/50 rounded-xl border border-orange-200">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Avatar className="h-10 w-10 flex-shrink-0">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <Avatar 
+                            className="h-10 w-10 flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                            onClick={() => navigateToProfile(request.friend_id)}
+                          >
                             <AvatarImage src={request.profiles.avatar_url || ''} />
                             <AvatarFallback className="bg-orange-500 text-white text-sm">
                               {request.profiles.full_name[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <div className="min-w-0">
-                            <p className="font-semibold text-gray-800 text-sm truncate">{request.profiles.full_name}</p>
+                            <button 
+                              onClick={() => navigateToProfile(request.friend_id)}
+                              className="font-semibold text-gray-800 text-sm truncate hover:text-orange-600 transition-colors text-left"
+                            >
+                              {request.profiles.full_name}
+                            </button>
                             <p className="text-xs text-orange-600">Request Sent</p>
                           </div>
                         </div>
@@ -551,14 +591,25 @@ const Friends = () => {
                   ) : (
                     searchResults.map((person) => (
                       <div key={person.id} className="flex items-center justify-between p-3 bg-gray-50/70 rounded-xl hover:bg-teal-50/50 transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Avatar className="h-10 w-10 flex-shrink-0">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <Avatar 
+                            className="h-10 w-10 flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                            onClick={() => navigateToProfile(person.id)}
+                          >
                             <AvatarImage src={person.avatar_url || ''} />
                             <AvatarFallback className="bg-[#2ec2b3] text-white text-sm">
                               {person.full_name[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="font-semibold text-gray-800 text-sm truncate">{person.full_name}</span>
+                          <div className="min-w-0">
+                            <button 
+                              onClick={() => navigateToProfile(person.id)}
+                              className="font-semibold text-gray-800 text-sm truncate hover:text-[#2ec2b3] transition-colors text-left"
+                            >
+                              {person.full_name}
+                            </button>
+                            <p className="text-xs text-gray-500">Tap avatar to view profile</p>
+                          </div>
                         </div>
                         <Button
                           size="sm"
@@ -591,15 +642,23 @@ const Friends = () => {
                   ) : (
                     pendingRequests.map((request) => (
                       <div key={request.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gradient-to-r from-teal-50 to-cyan-50 rounded-xl border border-[#2ec2b3]/20">
-                        <div className="flex items-center gap-3 mb-3 sm:mb-0">
-                          <Avatar className="h-12 w-12 ring-2 ring-[#2ec2b3]/30">
+                        <div className="flex items-center gap-3 mb-3 sm:mb-0 flex-1">
+                          <Avatar 
+                            className="h-12 w-12 ring-2 ring-[#2ec2b3]/30 cursor-pointer hover:ring-[#2ec2b3]/50 transition-all"
+                            onClick={() => navigateToProfile(request.user_id)}
+                          >
                             <AvatarImage src={request.profiles.avatar_url || ''} />
                             <AvatarFallback className="bg-[#2ec2b3] text-white">
                               {request.profiles.full_name[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
-                            <p className="font-semibold text-gray-900">{request.profiles.full_name}</p>
+                          <div className="min-w-0">
+                            <button 
+                              onClick={() => navigateToProfile(request.user_id)}
+                              className="font-semibold text-gray-900 hover:text-[#2ec2b3] transition-colors text-left"
+                            >
+                              {request.profiles.full_name}
+                            </button>
                             <p className="text-xs text-gray-600">Wants to be your friend</p>
                           </div>
                         </div>

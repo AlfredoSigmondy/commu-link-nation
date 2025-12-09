@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
@@ -15,7 +15,7 @@ import DirectApproach from "./pages/DirectApproach";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
-import PublicProfile from "@/pages/PublicProfile";
+import PublicProfile from "./pages/PublicProfile";
 
 const queryClient = new QueryClient();
 
@@ -36,10 +36,11 @@ const App = () => (
             <Route path="/friends" element={<Friends />} />
             <Route path="/direct-approach" element={<DirectApproach />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/profile/:userId" element={<PublicProfile />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/public-profile/:userId" element={<PublicProfile />} />
+            <Route path="/profile/:userId" element={<PublicProfile />} />     
+            <Route path="/404" element={<NotFound />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>
