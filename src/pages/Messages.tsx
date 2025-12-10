@@ -514,14 +514,20 @@ const Messages = () => {
 
                 {/* Video Call Dialog */}
                 {selectedFriend && (
-                    <VideoCallDialog
-                        open={videoCallOpen}
-                        onOpenChange={setVideoCallOpen}
-                        friendName={selectedFriend.profiles.full_name}
-                        friendId={selectedFriend.profiles.id}
-                        userId={user.id}
-                        userName={user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
-                    />
+                    
+                <VideoCallDialog
+                    open={videoCallOpen}
+                    onOpenChange={(open) => {
+                        if (!open) handleVideoCallClose();
+                        setVideoCallOpen(open);
+                    }}
+                    friendName={selectedFriend.profiles.full_name}
+                    friendId={selectedFriend.profiles.id}
+                    userId={user.id}
+                    userName={user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
+                    roomUrl={activeCall?.room_url} // PASS THE EXISTING ROOM URL
+                    skipApiCall={true} // TELL IT TO SKIP THE API CALL
+                />
                 )}
 
                 {/* Mobile Layout */}

@@ -11,6 +11,8 @@ interface Props {
   friendId: string;
   userId: string;
   userName: string;
+  roomUrl?: string; // Add this
+  skipApiCall?: boolean; // Add this
 }
 
 export const VideoCallDialog = ({
@@ -28,88 +30,66 @@ export const VideoCallDialog = ({
   const [camOn, setCamOn] = useState(true);
   const [apiStatus, setApiStatus] = useState<'pending' | 'success' | 'error'>('pending');
 
-  const setupCall = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      setApiStatus('pending');
-      
-      console.log('🔄 Starting video call setup...');
+// Update the Props interface:
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  friendName: string;
+  friendId: string;
+  userId: string;
+  userName: string;
+  roomUrl?: string; // Add this
+  skipApiCall?: boolean; // Add this
+}
 
-      // Use the correct API route - note the different path structure
-      // For Next.js App Router, the route should be accessible at /api/create-daily-room
-      const BACKEND_URL = 'https://communitymatch.vercel.app';
-      
-      console.log('Calling backend:', `${BACKEND_URL}/api/create-daily-room`);
-      console.log('Request data:', { userId, friendId, userName });
-
-      // IMPORTANT: Your backend needs to accept POST requests
-      const response = await fetch(`${BACKEND_URL}/api/create-daily-room`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ 
-          userId, 
-          friendId, 
-          userName: userName || 'User' 
-        }),
-      });
-
-      console.log('Backend response status:', response.status, response.statusText);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Backend error response:', errorText);
-        setApiStatus('error');
-        
-        let errorDetails = errorText;
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorDetails = errorJson.error || errorJson.message || errorText;
-        } catch {
-          // Not JSON
-        }
-        
-        // Check if it's a 405 error
-        if (response.status === 405) {
-          errorDetails = 'API endpoint method not allowed. Backend needs to handle POST requests.';
-        }
-        
-        throw new Error(`Backend error ${response.status}: ${errorDetails}`);
-      }
-
-      // Parse JSON
-      const data = await response.json();
-      console.log('✅ Backend success:', data);
+// In the component, modify setupCall:
+const setupCall = async () => {
+  try {
+    setLoading(true);
+    setError('');
+    setApiStatus('pending');
+    
+    console.log('🔄 Starting video call setup...');
+    
+    // OPTION 1: Use provided roomUrl and skip API
+    if (roomUrl && skipApiCall) {
+      console.log('🚀 Using provided room URL (skipping API):', roomUrl);
+      setCallUrl(roomUrl);
       setApiStatus('success');
-
-      if (!data.url) {
-        console.error('Missing URL in response:', data);
-        setApiStatus('error');
-        throw new Error(data.error || 'Invalid response from backend - missing room URL');
-      }
-
-      // Create the Daily.co URL
-      // Note: Daily.co might not need the token parameter in all cases
-      const dailyUrl = data.token ? `${data.url}?t=${data.token}` : data.url;
-      console.log('🔗 Daily.co URL:', dailyUrl);
-      
-      setCallUrl(dailyUrl);
-      
-      // Show iframe
       setTimeout(() => {
-        console.log('✅ Call setup complete');
+        console.log('✅ Call setup complete using existing room');
         setLoading(false);
-      }, 2000);
-
-    } catch (err: any) {
-      console.error('❌ Call setup failed:', err)
-      setError(err.message || 'Failed to set up call. Make sure backend server is running.');
-      setLoading(false);
+      }, 1000);
+      return;
     }
-  };
+    
+    // OPTION 2: Try the API (will fail until deployed)
+    console.log('⚠️ No room URL provided, trying API...');
+    const BACKEND_URL = 'https://communitymatch.vercel.app';
+    
+    console.log('Calling backend:', `${BACKEND_URL}/api/create-daily-room`);
+    console.log('Request data:', { userId, friendId, userName });
+
+    const response = await fetch(`${BACKEND_URL}/api/create-daily-room`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ 
+        userId, 
+        friendId, 
+        userName: userName || 'User' 
+      }),
+    });
+
+    // ... rest of your API call code
+  } catch (err: any) {
+    console.error('❌ Call setup failed:', err)
+    setError(err.message || 'Failed to set up call. Make sure backend server is running.');
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     if (!open) return;
