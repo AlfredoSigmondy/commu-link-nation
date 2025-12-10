@@ -355,14 +355,17 @@ const Messages = () => {
         return;
     }
     
-    console.log('Starting video call with:', selectedFriend.profiles.full_name);
+    console.log('=== STARTING VIDEO CALL ===');
+    console.log('Caller:', user.id);
+    console.log('Receiver:', selectedFriend.profiles.id);
+    console.log('Friend Name:', selectedFriend.profiles.full_name);
+    
     setCallStatus('calling');
     
     try {
         const roomName = [user.id, selectedFriend.profiles.id].sort().join('-') + '-private';
-        console.log('Creating room:', roomName);
+        console.log('Room Name:', roomName);
         
-        // Create a call record in your database
         const { data: call, error } = await supabase
             .from('calls')
             .insert({
@@ -376,22 +379,20 @@ const Messages = () => {
             .single();
 
         if (error) {
-            console.error('Supabase error:', error);
+            console.error('Supabase Insert Error:', error);
             setCallStatus('idle');
             toast({ title: 'Call failed', description: error.message, variant: 'destructive' });
             return;
         }
 
-        console.log('Call record created:', call);
+        console.log('Call Record Created:', call);
         setActiveCall(call);
         
-        setTimeout(() => {
-            console.log('Opening video call dialog');
-            setVideoCallOpen(true);
-        }, 500);
+        console.log('Opening VideoCallDialog...');
+        setVideoCallOpen(true);
 
     } catch (err: any) {
-        console.error('Video call error:', err);
+        console.error('Video Call Initiation Error:', err);
         setCallStatus('idle');
         toast({ title: 'Call failed', description: err.message, variant: 'destructive' });
     }
