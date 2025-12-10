@@ -1,6 +1,6 @@
 // src/components/VideoCallDialog.tsx
 import { useEffect, useState } from 'react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'; // Added DialogTitle
 import { Button } from '@/components/ui/button';
 import { Loader2, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 
@@ -36,15 +36,20 @@ export const VideoCallDialog = ({
       
       console.log('🔄 Starting video call setup...');
 
-      // Use the backend server
+      // Use the correct API route - note the different path structure
+      // For Next.js App Router, the route should be accessible at /api/create-daily-room
       const BACKEND_URL = 'https://communitymatch.vercel.app';
       
       console.log('Calling backend:', `${BACKEND_URL}/api/create-daily-room`);
       console.log('Request data:', { userId, friendId, userName });
 
+      // IMPORTANT: Your backend needs to accept POST requests
       const response = await fetch(`${BACKEND_URL}/api/create-daily-room`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify({ 
           userId, 
           friendId, 
@@ -54,43 +59,41 @@ export const VideoCallDialog = ({
 
       console.log('Backend response status:', response.status, response.statusText);
 
-      // Get response as text first
-      const responseText = await response.text();
-      console.log('Backend response text:', responseText);
-
       if (!response.ok) {
-        let errorDetails = responseText;
+        const errorText = await response.text();
+        console.error('Backend error response:', errorText);
+        setApiStatus('error');
+        
+        let errorDetails = errorText;
         try {
-          const errorJson = JSON.parse(responseText);
-          errorDetails = errorJson.error || errorJson.message || responseText;
+          const errorJson = JSON.parse(errorText);
+          errorDetails = errorJson.error || errorJson.message || errorText;
         } catch {
           // Not JSON
         }
         
-        setApiStatus('error');
+        // Check if it's a 405 error
+        if (response.status === 405) {
+          errorDetails = 'API endpoint method not allowed. Backend needs to handle POST requests.';
+        }
+        
         throw new Error(`Backend error ${response.status}: ${errorDetails}`);
       }
 
       // Parse JSON
-      let data;
-      try {
-        data = JSON.parse(responseText);
-        console.log('✅ Backend success:', data);
-        setApiStatus('success');
-      } catch (parseError) {
-        console.error('Failed to parse JSON:', parseError);
-        setApiStatus('error');
-        throw new Error('Invalid JSON response from backend');
-      }
+      const data = await response.json();
+      console.log('✅ Backend success:', data);
+      setApiStatus('success');
 
-      if (!data.url || !data.token) {
-        console.error('Missing URL or token:', data);
+      if (!data.url) {
+        console.error('Missing URL in response:', data);
         setApiStatus('error');
-        throw new Error(data.error || 'Invalid response from backend');
+        throw new Error(data.error || 'Invalid response from backend - missing room URL');
       }
 
       // Create the Daily.co URL
-      const dailyUrl = `${data.url}?t=${data.token}`;
+      // Note: Daily.co might not need the token parameter in all cases
+      const dailyUrl = data.token ? `${data.url}?t=${data.token}` : data.url;
       console.log('🔗 Daily.co URL:', dailyUrl);
       
       setCallUrl(dailyUrl);
@@ -131,22 +134,27 @@ export const VideoCallDialog = ({
       const BACKEND_URL = 'https://communitymatch.vercel.app';
       const response = await fetch(`${BACKEND_URL}/api/create-daily-room`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify({ userId, friendId, userName }),
       });
       
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Server error: ${response.status} - ${errorText}`);
+        console.error('Retry error:', errorText);
+        throw new Error(`Server error: ${response.status}`);
       }
       
       const data = await response.json();
-      if (data.url && data.token) {
-        setCallUrl(`${data.url}?t=${data.token}`);
+      if (data.url) {
+        const dailyUrl = data.token ? `${data.url}?t=${data.token}` : data.url;
+        setCallUrl(dailyUrl);
         setApiStatus('success');
         setTimeout(() => setLoading(false), 2000);
       } else {
-        throw new Error('Missing URL or token in response');
+        throw new Error('Missing URL in response');
       }
     } catch (err: any) {
       setError(err.message);
@@ -155,10 +163,52 @@ export const VideoCallDialog = ({
     }
   };
 
+  // Test API endpoint directly (for debugging)
+  const testApiEndpoint = async () => {
+    try {
+      console.log('🧪 Testing API endpoint...');
+      const BACKEND_URL = 'https://communitymatch.vercel.app';
+      
+      // Test with GET first to see if endpoint exists
+      const testResponse = await fetch(`${BACKEND_URL}/api/create-daily-room`, {
+        method: 'GET',
+      });
+      
+      console.log('Test GET response:', testResponse.status, testResponse.statusText);
+      
+      // Test with POST
+      const postResponse = await fetch(`${BACKEND_URL}/api/create-daily-room`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId: 'test-user-id', 
+          friendId: 'test-friend-id', 
+          userName: 'Test User' 
+        }),
+      });
+      
+      console.log('Test POST response:', postResponse.status, postResponse.statusText);
+      const text = await postResponse.text();
+      console.log('Test POST response text:', text);
+      
+      alert(`GET: ${testResponse.status}, POST: ${postResponse.status}\nSee console for details.`);
+    } catch (error) {
+      console.error('Test failed:', error);
+      alert('Test failed. Check console.');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleLeaveCall()}>
       <DialogContent className="max-w-6xl w-[95vw] h-[90vh] p-0 bg-black rounded-2xl overflow-hidden border-0">
+        {/* Added DialogTitle for accessibility */}
+        <DialogTitle className="sr-only">Video Call with {friendName}</DialogTitle>
         
+        {/* Added aria-describedby for accessibility */}
+        <div className="sr-only" id="call-description">
+          Video call interface with {friendName}. Use microphone and camera controls below.
+        </div>
+
         {/* Daily.co iframe - only show when we have a URL */}
         {callUrl && (
           <iframe
@@ -167,21 +217,34 @@ export const VideoCallDialog = ({
             allow="camera; microphone; fullscreen; display-capture"
             title={`Video call with ${friendName}`}
             allowFullScreen
+            aria-describedby="call-description"
             onLoad={() => {
               console.log('Daily.co iframe loaded');
               setLoading(false);
             }}
             onError={() => {
               console.error('Daily.co iframe failed to load');
-              setError('Failed to load video call interface');
+              setError('Failed to load video call interface. Please check your Daily.co configuration.');
               setLoading(false);
             }}
           />
         )}
 
         {/* Debug info overlay - shows API status */}
-        <div className="absolute top-4 right-4 bg-black/70 text-white text-xs p-2 rounded z-50">
-          API: {apiStatus} | Loading: {loading.toString()}
+        <div className="absolute top-4 right-4 bg-black/70 text-white text-xs p-2 rounded z-50 flex flex-col gap-1">
+          <div>API: <span className={apiStatus === 'success' ? 'text-green-400' : apiStatus === 'error' ? 'text-red-400' : 'text-yellow-400'}>
+            {apiStatus}
+          </span></div>
+          <div>Loading: {loading.toString()}</div>
+          <Button 
+            size="xs" 
+            variant="outline" 
+            className="mt-1 text-xs h-6"
+            onClick={testApiEndpoint}
+            title="Test API endpoint"
+          >
+            Test API
+          </Button>
         </div>
 
         {/* Loading overlay */}
@@ -189,12 +252,13 @@ export const VideoCallDialog = ({
           <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40">
             <Loader2 className="h-16 w-16 animate-spin text-[#2ec2b3] mb-6" />
             <p className="text-2xl font-medium text-white mb-2">
-              {apiStatus === 'pending' ? 'Connecting...' : 'Starting call...'}
+              {apiStatus === 'pending' ? 'Connecting to server...' : 'Starting call...'}
             </p>
             <p className="text-gray-400 mb-4">with {friendName}</p>
-            <div className="text-sm text-gray-500 mt-4">
+            <div className="text-sm text-gray-500 mt-4 text-center">
               <p>User ID: {userId?.substring(0, 8)}...</p>
               <p>Friend ID: {friendId?.substring(0, 8)}...</p>
+              <p className="mt-2 text-xs">Status: {apiStatus}</p>
             </div>
           </div>
         )}
@@ -210,11 +274,11 @@ export const VideoCallDialog = ({
               <p className="text-gray-300 mb-4 p-3 bg-red-900/30 rounded break-words">{error}</p>
               
               <div className="mt-6 p-4 bg-gray-800/50 rounded">
-                <h4 className="font-bold mb-2">Troubleshooting:</h4>
+                <h4 className="font-bold mb-2">Common Issues:</h4>
                 <ul className="text-sm text-gray-300 text-left space-y-1">
-                  <li>1. Check if API endpoint is deployed: <code>https://communitymatch.vercel.app/api/create-daily-room</code></li>
-                  <li>2. Verify DAILY_API_KEY in Vercel environment variables</li>
-                  <li>3. Check browser console for detailed error</li>
+                  <li>1. <strong>405 Error</strong>: Backend API doesn't accept POST requests</li>
+                  <li>2. <strong>Missing DAILY_API_KEY</strong>: Check Vercel environment variables</li>
+                  <li>3. <strong>API not deployed</strong>: Check if endpoint exists</li>
                 </ul>
               </div>
               
@@ -234,12 +298,17 @@ export const VideoCallDialog = ({
         {!callUrl && !loading && !error && (
           <div className="absolute inset-0 bg-black flex flex-col items-center justify-center">
             <p className="text-white text-xl mb-4">Could not start video call</p>
-            <Button onClick={retrySetup} className="mb-4">
-              Try Again
-            </Button>
-            <Button onClick={handleLeaveCall} variant="outline">
-              Cancel
-            </Button>
+            <div className="flex gap-3">
+              <Button onClick={retrySetup} className="mb-4">
+                Try Again
+              </Button>
+              <Button onClick={testApiEndpoint} variant="outline">
+                Test API
+              </Button>
+              <Button onClick={handleLeaveCall} variant="outline">
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
 

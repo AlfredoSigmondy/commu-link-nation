@@ -1,6 +1,7 @@
 // app/api/create-daily-room/route.js
 import { NextResponse } from 'next/server';
 
+// Change from GET to POST
 export async function POST(request) {
   try {
     const { userId, friendId, userName } = await request.json();
@@ -106,13 +107,21 @@ export async function POST(request) {
   }
 }
 
+// Also handle GET requests if needed
+export async function GET(request) {
+  return NextResponse.json(
+    { error: 'Please use POST method for this endpoint' },
+    { status: 405 }
+  );
+}
+
 // Handle preflight OPTIONS request for CORS
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     },
   });  

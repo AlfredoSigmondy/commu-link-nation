@@ -419,7 +419,7 @@ const Dashboard = () => {
                     </div>
                     <h5 className="font-semibold text-gray-900">Contact</h5>
                     <p className="text-gray-600">(02) 1234-5678</p>
-                    <p className="text-gray-600">brgy.community@email.com</p>
+                    <p className="text-gray-600">brgy.community@email.com </p>
                   </div>
                 </div>
               </div>
