@@ -523,7 +523,7 @@ const CommunityFeed = () => {
               onClick={closeModal}
               className="h-8 w-8 rounded-full"
             >
-              <X className="h-4 w-4" />
+              
             </Button>
           </div>
 
