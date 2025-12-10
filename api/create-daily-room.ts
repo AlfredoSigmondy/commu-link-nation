@@ -1,21 +1,37 @@
-// pages/api/create-daily-room.ts
-import type { NextApiRequest, NextApiResponse } from 'next';
+// api/create-daily-room.ts
+import { VercelRequest, VercelResponse } from '@vercel/node';
 
-const DAILY_API_KEY = process.env.DAILY_API_KEY?.trim();
-const DAILY_DOMAIN = 'communitymatch.daily.co';
+interface RequestBody {
+  userId: string;
+  friendId: string;
+  userName?: string;
+}
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Log the request
-  console.log('=== API CALLED: create-daily-room ===');
-  console.log('Method:', req.method);
-  console.log('Headers:', req.headers);
+interface DailyRoomResponse {
+  success: boolean;
+  url: string;
+  token: string;
+  roomName: string;
+  roomCreated?: boolean;
+  timestamp: string;
+  message?: string;
+  warning?: string;
+}
+
+interface DailyApiError {
+  error: string;
+  message?: string;
+  details?: string;
+  stack?: string;
+  allowed?: string[];
+  received?: { userId?: string; friendId?: string };
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log('🎬 API called:', req.method, req.url);
   
-  // Set response headers
-  res.setHeader('Content-Type', 'application/json');
-  
-  // Handle preflight
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    console.log('Handling OPTIONS preflight');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -25,28 +41,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Only allow POST
   if (req.method !== 'POST') {
     console.log('Method not allowed:', req.method);
-    return res.status(405).json({ 
+    const errorResponse: DailyApiError = {
       error: 'Method Not Allowed',
       allowed: ['POST']
-    });
+    };
+    return res.status(405).json(errorResponse);
   }
 
   try {
     // Parse request body
-    let body;
+    let body: RequestBody;
     try {
-      body = req.body;
-      console.log('Request body raw:', body);
-      
-      // If body is a string, parse it
-      if (typeof body === 'string') {
-        body = JSON.parse(body);
-      }
+      body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      console.log('Request body:', body);
     } catch (parseError) {
       console.error('Failed to parse request body:', parseError);
-      return res.status(400).json({ 
+      const errorResponse: DailyApiError = {
         error: 'Invalid JSON in request body'
-      });
+      };
+      return res.status(400).json(errorResponse);
     }
 
     const { userId, friendId, userName = 'User' } = body;
@@ -56,20 +69,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Validate required fields
     if (!userId || !friendId) {
       console.log('Missing required fields:', { userId, friendId });
-      return res.status(400).json({ 
+      const errorResponse: DailyApiError = {
         error: 'userId and friendId are required',
         received: { userId, friendId }
-      });
+      };
+      return res.status(400).json(errorResponse);
     }
 
     // Check API key
+    const DAILY_API_KEY = process.env.DAILY_API_KEY;
+    const DAILY_DOMAIN = 'communitymatch.daily.co';
+    
     if (!DAILY_API_KEY) {
       console.error('DAILY_API_KEY is not configured');
-      console.log('Available env vars:', Object.keys(process.env).filter(k => k.includes('DAILY')));
-      return res.status(500).json({ 
+      const errorResponse: DailyApiError = {
         error: 'Server configuration error',
-        message: 'Daily.co API key is not configured. Check your .env.local file.'
-      });
+        message: 'Daily.co API key is not configured. Check your Vercel environment variables.'
+      };
+      return res.status(500).json(errorResponse);
     }
 
     console.log('DAILY_API_KEY exists, length:', DAILY_API_KEY.length);
@@ -84,15 +101,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (DAILY_API_KEY.length < 20 || DAILY_API_KEY.includes('your_')) {
       console.log('Using mock response (API key appears to be placeholder)');
       
-      // Return mock data for testing
-      return res.status(200).json({
+      const mockResponse: DailyRoomResponse = {
         success: true,
         url: roomUrl,
         token: `mock_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         roomName: roomName,
-        message: 'MOCK RESPONSE - Replace DAILY_API_KEY in .env.local with real key',
-        warning: 'Using mock token. Video will not actually connect without real Daily.co API key.'
-      });
+        message: 'MOCK RESPONSE - Replace DAILY_API_KEY in Vercel env vars with real key',
+        warning: 'Using mock token. Video will not actually connect without real Daily.co API key.',
+        timestamp: new Date().toISOString()
+      };
+      
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).json(mockResponse);
     }
 
     // REAL Daily.co API calls
@@ -140,10 +161,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (!createRes.ok) {
           const errorText = await createRes.text();
           console.error('Failed to create room:', errorText);
-          return res.status(500).json({ 
+          
+          const errorResponse: DailyApiError = {
             error: 'Failed to create room on Daily.co',
             details: errorText.substring(0, 200)
-          });
+          };
+          
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Content-Type', 'application/json');
+          return res.status(500).json(errorResponse);
         }
 
         roomCreated = true;
@@ -182,10 +208,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!tokenRes.ok) {
       const errorText = await tokenRes.text();
       console.error('Failed to create token:', errorText);
-      return res.status(500).json({ 
+      
+      const errorResponse: DailyApiError = {
         error: 'Failed to create meeting token',
         details: errorText.substring(0, 200)
-      });
+      };
+      
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(500).json(errorResponse);
     }
 
     const tokenData = await tokenRes.json();
@@ -193,28 +224,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     if (!tokenData.token) {
       console.error('Token missing from response:', tokenData);
-      return res.status(500).json({ error: 'Invalid token response from Daily.co' });
+      const errorResponse: DailyApiError = {
+        error: 'Invalid token response from Daily.co'
+      };
+      
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(500).json(errorResponse);
     }
 
     // Success!
-    return res.status(200).json({
+    const successResponse: DailyRoomResponse = {
       success: true,
       url: roomUrl,
       token: tokenData.token,
       roomName: roomName,
       roomCreated: roomCreated,
       timestamp: new Date().toISOString()
-    });
+    };
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(200).json(successResponse);
 
   } catch (error: any) {
     console.error('=== UNEXPECTED ERROR ===');
     console.error('Error:', error);
     console.error('Stack:', error.stack);
     
-    return res.status(500).json({ 
+    const errorResponse: DailyApiError = {
       error: 'Internal server error',
       message: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    };
+    
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(500).json(errorResponse);
   }
 }
