@@ -102,7 +102,7 @@ export const VideoCallDialog = ({
       }, 2000);
 
     } catch (err: any) {
-      console.error('❌ Call setup failed:', err);
+      console.error('❌ Call setup failed:', err)
       setError(err.message || 'Failed to set up call. Make sure backend server is running.');
       setLoading(false);
     }
