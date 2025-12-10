@@ -34,7 +34,6 @@ const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
-
   const [posts, setPosts] = useState<any[]>([]);
   const [media, setMedia] = useState<any[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
@@ -223,9 +222,11 @@ const Profile = () => {
         </div>
       </header>
       
-      <SignOutDialog
-        open={showSignOutDialog}
-        onOpenChange={setShowSignOutDialog} onConfirm={() => signOut(true)}/>
+       <SignOutDialog
+              open={showSignOutDialog}
+              onOpenChange={setShowSignOutDialog}
+              onConfirm={() => signOut(true)}
+            />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         {/* Profile Card with Rating Badge */}

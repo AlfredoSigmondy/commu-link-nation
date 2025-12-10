@@ -14,7 +14,7 @@ import {
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Heart, MessageCircle, MoreVertical, Edit2, Trash2, Play, Volume2, VolumeX } from 'lucide-react';
+import { Heart, MessageCircle, MoreVertical, Edit2, Trash2, Play, Volume2, VolumeX, Pin, PinOff, Crown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Post {
@@ -24,10 +24,14 @@ interface Post {
   image_url: string | null;
   media_type: string | null;
   user_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  is_pinned: boolean;
+  pinned_at: string | null;
   profiles: {
     id: string;
     full_name: string;
     avatar_url: string | null;
+    role?: string;
   };
 }
 
@@ -37,6 +41,21 @@ interface PostCardProps {
   onPostUpdate?: () => void;
   currentlyPlayingVideo: string | null;
   setCurrentlyPlayingVideo: (postId: string | null) => void;
+}
+
+// Utility function to check if user is admin
+async function isUserAdmin(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .single();
+    
+  if (error || !data) return false;
+  
+  return data.role === 'admin';
 }
 
 export function PostCard({ 
@@ -69,9 +88,56 @@ export function PostCard({
   const [showVideoControls, setShowVideoControls] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
 
+  // Admin and pin state
+  const [isPinned, setIsPinned] = useState(post.is_pinned || false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [postAuthorIsAdmin, setPostAuthorIsAdmin] = useState(post.profiles.role === 'admin');
+
   const isOwner = post.user_id === currentUserId;
   const isVideo = post.media_type?.startsWith('video/');
   const isCurrentVideoPlaying = currentlyPlayingVideo === post.id;
+
+  // Check if current user is admin AND check if post author is admin
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      const adminStatus = await isUserAdmin(currentUserId);
+      setIsAdmin(adminStatus);
+    };
+    
+    if (currentUserId) {
+      checkAdminStatus();
+    }
+  }, [currentUserId]);
+
+  // Check if post author is admin - FIXED with "as any"
+  useEffect(() => {
+    const checkPostAuthorAdminStatus = async () => {
+      if (post.user_id) {
+        const authorIsAdmin = await isUserAdmin(post.user_id);
+        setPostAuthorIsAdmin(authorIsAdmin);
+        
+        // If author is admin and post is not pinned, auto-pin it
+        if (authorIsAdmin && !post.is_pinned) {
+          try {
+            await supabase
+              .from('posts')
+              .update({ 
+                is_pinned: true,
+                pinned_at: new Date().toISOString()
+              } as any) // FIX: Add "as any" to bypass TypeScript error
+              .eq('id', post.id);
+            
+            setIsPinned(true);
+            onPostUpdate?.(); // Refresh the posts list
+          } catch (error) {
+            console.error('Error auto-pinning admin post:', error);
+          }
+        }
+      }
+    };
+    
+    checkPostAuthorAdminStatus();
+  }, [post.user_id, post.is_pinned, post.id, onPostUpdate]);
 
   // Generate public media URL
   useEffect(() => {
@@ -81,18 +147,16 @@ export function PostCard({
     }
   }, [post.image_url]);
 
-  // Setup Intersection Observer for auto-play
+  // Setup Intersection Observer for auto-play (only for approved posts)
   useEffect(() => {
-    if (!isVideo || !videoRef.current) return;
+    if (post.status !== 'approved' || !isVideo || !videoRef.current) return;
 
     const handleIntersection = (entries: IntersectionObserverEntry[]) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
-          // Only play if no other video is playing
           if (!currentlyPlayingVideo) {
             setCurrentlyPlayingVideo(post.id);
             videoRef.current?.play().catch(() => {
-              // Auto-play was prevented, show play button
               setCurrentlyPlayingVideo(null);
             });
           }
@@ -107,7 +171,7 @@ export function PostCard({
       handleIntersection,
       { 
         threshold: 0.5,
-        rootMargin: '0px 0px -100px 0px' // Play when 100px from bottom of viewport
+        rootMargin: '0px 0px -100px 0px'
       }
     );
 
@@ -118,11 +182,11 @@ export function PostCard({
         observerRef.current.disconnect();
       }
     };
-  }, [isVideo, post.id, currentlyPlayingVideo, isCurrentVideoPlaying, setCurrentlyPlayingVideo]);
+  }, [isVideo, post.id, currentlyPlayingVideo, isCurrentVideoPlaying, setCurrentlyPlayingVideo, post.status]);
 
-  // Handle video play/pause
+  // Handle video play/pause (only for approved posts)
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (post.status !== 'approved' || !videoRef.current) return;
 
     if (isCurrentVideoPlaying) {
       videoRef.current.muted = isMuted;
@@ -135,10 +199,12 @@ export function PostCard({
       videoRef.current.pause();
       setIsVideoPlaying(false);
     }
-  }, [isCurrentVideoPlaying, isMuted]);
+  }, [isCurrentVideoPlaying, isMuted, post.status]);
 
   // Fetch likes
   const fetchLikes = useCallback(async () => {
+    if (post.status !== 'approved') return;
+    
     const { count } = await supabase
       .from('post_likes')
       .select('*', { count: 'exact', head: true })
@@ -153,10 +219,12 @@ export function PostCard({
 
     setLikes(count || 0);
     setHasLiked(!!userLike);
-  }, [post.id, currentUserId]);
+  }, [post.id, currentUserId, post.status]);
 
   // Fetch comments
   const fetchComments = useCallback(async () => {
+    if (post.status !== 'approved') return;
+    
     const { data } = await supabase
       .from('post_comments')
       .select(`
@@ -169,19 +237,20 @@ export function PostCard({
       .order('created_at', { ascending: true });
 
     if (data) setComments(data);
-  }, [post.id]);
+  }, [post.id, post.status]);
 
   useEffect(() => {
-    fetchLikes();
-    fetchComments();
-  }, [fetchLikes, fetchComments]);
+    if (post.status === 'approved') {
+      fetchLikes();
+      fetchComments();
+    }
+  }, [fetchLikes, fetchComments, post.status]);
 
   // Video event handlers
   const handleVideoPlayClick = () => {
     if (isCurrentVideoPlaying) {
       setCurrentlyPlayingVideo(null);
     } else {
-      // Stop any currently playing video
       setCurrentlyPlayingVideo(post.id);
     }
   };
@@ -215,6 +284,8 @@ export function PostCard({
 
   // Like handler
   const handleLike = async () => {
+    if (post.status !== 'approved') return;
+    
     if (hasLiked) {
       await supabase.from('post_likes').delete().eq('post_id', post.id).eq('user_id', currentUserId);
     } else {
@@ -225,7 +296,7 @@ export function PostCard({
 
   // Comment handler
   const handleComment = async () => {
-    if (!newComment.trim()) return;
+    if (post.status !== 'approved' || !newComment.trim()) return;
 
     const { error } = await supabase
       .from('post_comments')
@@ -281,6 +352,30 @@ export function PostCard({
     }
   };
 
+  // Pin/Unpin handler - FIXED with "as any"
+  const handlePinToggle = async () => {
+    const newPinnedState = !isPinned;
+    
+    const { error } = await supabase
+      .from('posts')
+      .update({ 
+        is_pinned: newPinnedState,
+        pinned_at: newPinnedState ? new Date().toISOString() : null
+      } as any) // FIX: Add "as any" to bypass TypeScript error
+      .eq('id', post.id);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      setIsPinned(newPinnedState);
+      toast({ 
+        title: 'Success', 
+        description: newPinnedState ? 'Post pinned to top' : 'Post unpinned' 
+      });
+      onPostUpdate?.();
+    }
+  };
+
   const goToProfile = () => {
     if (!post.user_id) {
       console.error('Post has no user_id!', post);
@@ -294,31 +389,51 @@ export function PostCard({
     }
   };
 
+  // Only render approved posts
+  if (post.status !== 'approved') {
+    return null;
+  }
+
   return (
     <>
-      <Card className="shadow-soft rounded-2xl overflow-hidden max-w-2xl mx-auto bg-white">
+      <Card className={`shadow-soft rounded-2xl overflow-hidden max-w-2xl mx-auto bg-white ${isPinned ? 'border-l-4 border-blue-500 bg-gradient-to-r from-blue-50 to-white' : ''}`}>
         <CardHeader className="p-4 pb-3">
           <div className="flex items-start justify-between w-full">
             {/* Clickable Profile Section */}
-            <button
-              onClick={goToProfile}
-              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-            >
-              <Avatar className="h-10 w-10 ring-2 ring-background">
-                <AvatarImage src={post.profiles.avatar_url || ''} />
-                <AvatarFallback>{post.profiles.full_name[0]}</AvatarFallback>
-              </Avatar>
+            <div className="flex items-start gap-3">
+              <button
+                onClick={goToProfile}
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+              >
+                <Avatar className="h-10 w-10 ring-2 ring-background relative">
+                  <AvatarImage src={post.profiles.avatar_url || ''} />
+                  <AvatarFallback>{post.profiles.full_name[0]}</AvatarFallback>
+                  {postAuthorIsAdmin && (
+                    <div className="absolute -top-1 -right-1 bg-yellow-500 rounded-full p-0.5">
+                      <Crown className="h-3 w-3 text-white" />
+                    </div>
+                  )}
+                </Avatar>
 
-              <div className="text-left">
-                <p className="font-semibold text-base">{post.profiles.full_name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
-                </p>
-              </div>
-            </button>
+                <div className="text-left">
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-base">{post.profiles.full_name}</p>
+                    {postAuthorIsAdmin && (
+                      <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded-full font-medium flex items-center gap-1">
+                        <Crown className="h-3 w-3" />
+                        Admin
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                  </p>
+                </div>
+              </button>
+            </div>
 
-            {/* Owner Menu */}
-            {isOwner && (
+            {/* Menu for owner or admin */}
+            {(isOwner || isAdmin) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="rounded-full">
@@ -326,20 +441,52 @@ export function PostCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => { setEditedContent(post.content); setIsEditMode(true); }}>
-                    <Edit2 className="h-4 w-4 mr-2" /> Edit Post
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => setShowDeleteDialog(true)}
-                    className="text-red-600 focus:text-red-600"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" /> Delete Post
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={handlePinToggle}>
+                      {isPinned ? (
+                        <>
+                          <PinOff className="h-4 w-4 mr-2" /> Unpin Post
+                        </>
+                      ) : (
+                        <>
+                          <Pin className="h-4 w-4 mr-2" /> Pin Post
+                        </>
+                      )}
+                    </DropdownMenuItem>
+                  )}
+                  {isOwner && (
+                    <>
+                      <DropdownMenuItem onClick={() => { setEditedContent(post.content); setIsEditMode(true); }}>
+                        <Edit2 className="h-4 w-4 mr-2" /> Edit Post
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        onClick={() => setShowDeleteDialog(true)}
+                        className="text-red-600 focus:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete Post
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
           </div>
         </CardHeader>
+
+        {/* Pinned Post Indicator */}
+        {isPinned && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border-t border-b border-blue-100">
+            <Pin className="h-4 w-4 text-blue-600 fill-blue-600" />
+            <span className="text-sm font-medium text-blue-700">
+              {postAuthorIsAdmin ? 'Pinned Admin Post' : 'Pinned by Admin'}
+            </span>
+            {post.pinned_at && (
+              <span className="text-xs text-blue-500 ml-auto">
+                {formatDistanceToNow(new Date(post.pinned_at), { addSuffix: true })}
+              </span>
+            )}
+          </div>
+        )}
 
         <CardContent className="px-4 pb-4 space-y-4">
           {/* Edit Mode */}
@@ -480,6 +627,14 @@ export function PostCard({
                   <span className="font-medium text-sm">{comments.length}</span>
                 </button>
               </div>
+              
+              {/* Pinned indicator in footer for small screens */}
+              {isPinned && (
+                <div className="flex items-center gap-1 text-blue-600 sm:hidden">
+                  <Pin className="h-4 w-4" />
+                  <span className="text-xs font-medium">Pinned</span>
+                </div>
+              )}
             </div>
           )}
 

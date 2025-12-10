@@ -1,14 +1,15 @@
-// CommunityFeed.tsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Image as ImageIcon, Video, Smile, X, Loader2 } from 'lucide-react';
+import { Image as ImageIcon, Video, Smile, X, Loader2, Eye, CheckCircle, Clock } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import { supabase } from '@/integrations/supabase/client';
@@ -20,23 +21,44 @@ interface Post {
   image_url: string | null;
   media_type: string | null;
   created_at: string;
-  status: string;
+  status: 'pending' | 'approved' | 'rejected';
   user_id: string;
+  is_pinned: boolean;
+  pinned_at: string | null;
   profiles: { 
     id: string;
     full_name: string; 
     avatar_url: string | null;
+    role?: string;
   };
+}
+
+// Utility function to check if user is admin
+async function isUserAdmin(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .single();
+    
+  if (error || !data) return false;
+  
+  return data.role === 'admin';
 }
 
 const CommunityFeed = () => {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newPost, setNewPost] = useState('');
   const [feeling, setFeeling] = useState<string | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'feed' | 'pending'>('feed');
+  const [isAdmin, setIsAdmin] = useState(false);
   
   // Track currently playing video across all posts
   const [currentlyPlayingVideo, setCurrentlyPlayingVideo] = useState<string | null>(null);
@@ -47,7 +69,19 @@ const CommunityFeed = () => {
   const firstName = profile?.full_name?.split(' ')[0] || 'friend';
 
   useEffect(() => {
+    // Check if current user is admin
+    const checkAdminStatus = async () => {
+      if (user?.id) {
+        const adminStatus = await isUserAdmin(user.id);
+        setIsAdmin(adminStatus);
+      }
+    };
+    
+    checkAdminStatus();
     fetchPosts();
+    if (isAdmin) {
+      fetchPendingPosts();
+    }
     
     // Set up real-time subscription for new posts
     const channel = supabase
@@ -62,6 +96,9 @@ const CommunityFeed = () => {
         (payload) => {
           // Refresh posts when there are changes
           fetchPosts();
+          if (isAdmin) {
+            fetchPendingPosts();
+          }
           
           // If a post was deleted and it was the currently playing video, clear it
           if (payload.eventType === 'DELETE' && payload.old?.id === currentlyPlayingVideo) {
@@ -74,7 +111,7 @@ const CommunityFeed = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [user?.id, isAdmin]);
 
   // Pause video when modal opens
   useEffect(() => {
@@ -86,9 +123,12 @@ const CommunityFeed = () => {
   const fetchPosts = async () => {
     const { data, error } = await supabase
       .from('posts')
-      .select('*, profiles(id, full_name, avatar_url)')
+      .select('*, profiles(id, full_name, avatar_url, role)')
       .eq('status', 'approved')
-      .order('created_at', { ascending: false });
+      // CRITICAL: Sort pinned posts first, then by creation date
+      .order('is_pinned', { ascending: false }) // Pinned posts first (false = true values first)
+      .order('pinned_at', { ascending: false, nullsLast: true }) // Most recent pinned first
+      .order('created_at', { ascending: false }); // Then newest posts
     
     if (error) {
       console.error('Error fetching posts:', error);
@@ -101,6 +141,23 @@ const CommunityFeed = () => {
     }
     
     setPosts(data as Post[]);
+  };
+
+  const fetchPendingPosts = async () => {
+    if (!isAdmin) return;
+    
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, profiles(id, full_name, avatar_url, role)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching pending posts:', error);
+      return;
+    }
+    
+    setPendingPosts(data as Post[]);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -194,21 +251,31 @@ const CommunityFeed = () => {
         ? `${newPost.trim()} ${feeling}`
         : newPost.trim();
 
-      const { error } = await supabase
-        .from('posts')
-        .insert({
-          user_id: user!.id,
-          content: contentWithFeeling || null,
-          image_url,
-          media_type,
-          status: 'pending',
-        });
+      // Check if user is admin
+      const isAdminUser = await isUserAdmin(user!.id);
+      
+      // Prepare post data
+  const postData = {
+    user_id: user!.id,
+    content: contentWithFeeling || null,
+    image_url,
+    media_type,
+    status: isAdminUser ? 'approved' : 'pending',
+    is_pinned: isAdminUser ? true : false,
+    pinned_at: isAdminUser ? new Date().toISOString() : null
+  };
+
+  const { error } = await supabase
+    .from('posts')
+    .insert(postData as any);
 
       if (error) throw error;
 
       toast({ 
         title: 'Post submitted!', 
-        description: 'Your post is under review and will appear soon.' 
+        description: isAdminUser 
+          ? 'Your admin post has been approved and pinned to the top!' 
+          : 'Your post is under review and will appear soon after approval.' 
       });
       
       closeModal();
@@ -221,6 +288,57 @@ const CommunityFeed = () => {
       });
     } finally {
       setIsPosting(false);
+    }
+  };
+
+  const handleApprovePost = async (postId: string) => {
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .update({ status: 'approved' })
+        .eq('id', postId);
+
+      if (error) throw error;
+
+      toast({ 
+        title: 'Post approved!', 
+        description: 'The post is now visible in the feed.' 
+      });
+      
+      fetchPosts();
+      fetchPendingPosts();
+    } catch (err: any) {
+      console.error('Approve post error:', err);
+      toast({ 
+        title: 'Error approving post', 
+        description: err.message || 'Please try again', 
+        variant: 'destructive' 
+      });
+    }
+  };
+
+  const handleRejectPost = async (postId: string) => {
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .update({ status: 'rejected' })
+        .eq('id', postId);
+
+      if (error) throw error;
+
+      toast({ 
+        title: 'Post rejected', 
+        description: 'The post has been rejected and will not appear in the feed.' 
+      });
+      
+      fetchPendingPosts();
+    } catch (err: any) {
+      console.error('Reject post error:', err);
+      toast({ 
+        title: 'Error rejecting post', 
+        description: err.message || 'Please try again', 
+        variant: 'destructive' 
+      });
     }
   };
 
@@ -243,6 +361,9 @@ const CommunityFeed = () => {
 
   const handleRefreshPosts = () => {
     fetchPosts();
+    if (isAdmin) {
+      fetchPendingPosts();
+    }
   };
 
   return (
@@ -297,6 +418,98 @@ const CommunityFeed = () => {
         </CardContent>
       </Card>
 
+      {/* Admin Tabs */}
+      {isAdmin && (
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'feed' | 'pending')}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="feed" className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Public Feed
+            </TabsTrigger>
+            <TabsTrigger value="pending" className="flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Pending Review
+              {pendingPosts.length > 0 && (
+                <Badge variant="destructive" className="ml-1">
+                  {pendingPosts.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="feed" className="mt-6">
+            {/* Feed content will be shown below */}
+          </TabsContent>
+          
+          <TabsContent value="pending" className="mt-6">
+            {pendingPosts.length === 0 ? (
+              <div className="text-center py-12 border rounded-xl">
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No pending posts</h3>
+                <p className="text-gray-500">All posts have been reviewed.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {pendingPosts.map((post) => (
+                  <Card key={post.id} className="border-2 border-yellow-200">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage src={post.profiles?.avatar_url || ''} />
+                            <AvatarFallback>{post.profiles?.full_name?.[0] || 'U'}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-semibold">{post.profiles?.full_name || 'User'}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(post.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                          <Clock className="h-3 w-3 mr-1" />
+                          Pending Review
+                        </Badge>
+                      </div>
+                      
+                      <p className="mb-4">{post.content}</p>
+                      
+                      {post.image_url && (
+                        <div className="mb-4">
+                          <img 
+                            src={supabase.storage.from('posts').getPublicUrl(post.image_url).data.publicUrl} 
+                            alt="Post" 
+                            className="w-full h-auto max-h-96 object-contain rounded-lg"
+                          />
+                        </div>
+                      )}
+                      
+                      <div className="flex gap-3">
+                        <Button 
+                          onClick={() => handleApprovePost(post.id)}
+                          className="flex-1 bg-green-600 hover:bg-green-700"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </Button>
+                        <Button 
+                          onClick={() => handleRejectPost(post.id)}
+                          variant="destructive"
+                          className="flex-1"
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
+
       {/* Create Post Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
         if (!open) closeModal();
@@ -310,7 +523,7 @@ const CommunityFeed = () => {
               onClick={closeModal}
               className="h-8 w-8 rounded-full"
             >
-              
+              <X className="h-4 w-4" />
             </Button>
           </div>
 
@@ -428,25 +641,27 @@ const CommunityFeed = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Posts Feed */}
-      <div className="space-y-6 pb-10">
-        {posts.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">No posts yet. Be the first to share!</p>
-          </div>
-        ) : (
-          posts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              currentUserId={user?.id || ''}
-              onPostUpdate={handleRefreshPosts}
-              currentlyPlayingVideo={currentlyPlayingVideo}
-              setCurrentlyPlayingVideo={setCurrentlyPlayingVideo}
-            />
-          ))
-        )}
-      </div>
+      {/* Posts Feed - Only show when on feed tab or if not admin */}
+      {(activeTab === 'feed' || !isAdmin) && (
+        <div className="space-y-6 pb-10">
+          {posts.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-lg">No posts yet. Be the first to share!</p>
+            </div>
+          ) : (
+            posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                currentUserId={user?.id || ''}
+                onPostUpdate={handleRefreshPosts}
+                currentlyPlayingVideo={currentlyPlayingVideo}
+                setCurrentlyPlayingVideo={setCurrentlyPlayingVideo}
+              />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 };

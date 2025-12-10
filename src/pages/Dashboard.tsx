@@ -317,9 +317,7 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Connection lines */}
-              <div className="absolute top-40 left-1/2 transform -translate-x-1/2 w-0.5 h-16 bg-gray-300"></div>
-
+            
               {/* Council Members Row */}
               <div className="mb-8">
                 <h4 className="text-center text-lg font-semibold text-gray-700 mb-8">

@@ -16,7 +16,7 @@ import {
   ArrowLeft, Plus, MapPin, PhilippinePeso, Check, Navigation, Star, 
   ClipboardList, Trash2, Locate, Eye, MessageCircle, Package, 
   ShoppingCart, Sparkles, Truck, Wrench, Laptop, PawPrint, 
-  HelpCircle, Filter, ChevronDown, ChevronUp, Grid3x3 
+  HelpCircle, Filter, ChevronDown, ChevronUp, Grid3x3, Flag, Ban 
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import mapboxgl from 'mapbox-gl';
@@ -35,7 +35,6 @@ const TASK_CATEGORIES = [
   { id: 'other', name: 'Other', icon: HelpCircle, color: 'bg-gray-500' },
 ] as const;
 
-// NEW: Mobile-optimized categories with shorter names
 const MOBILE_CATEGORIES = [
   { id: 'delivery', name: 'Delivery', icon: Package, color: 'bg-orange-500', shortName: 'Delivery' },
   { id: 'groceries', name: 'Groceries', icon: ShoppingCart, color: 'bg-green-500', shortName: 'Groceries' },
@@ -115,13 +114,89 @@ const Tasks = () => {
   const [taskToRate, setTaskToRate] = useState<Task | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [taskToReport, setTaskToReport] = useState<Task | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [isReporting, setIsReporting] = useState(false);
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryId | 'all'>('all');
   const [showCategoryFilter, setShowCategoryFilter] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
+  const [banInfo, setBanInfo] = useState<{is_banned: boolean, reason: string, expires_at: string | null}>({
+    is_banned: false,
+    reason: '',
+    expires_at: null
+  });
 
-  // NEW: Detect mobile view
+  // Get ban details function
+  const getBanDetails = async (): Promise<{is_banned: boolean, reason: string, expires_at: string | null}> => {
+    if (!user) return { is_banned: false, reason: '', expires_at: null };
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_bans')
+        .select('reason, expires_at, created_at')
+        .eq('user_id', user.id)
+        .eq('ban_type', 'posting_restriction')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (error) {
+        // No active ban found
+        return { is_banned: false, reason: '', expires_at: null };
+      }
+      
+      // Check if ban is expired
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        // Update ban to inactive since it's expired
+        await supabase
+          .from('user_bans')
+          .update({ is_active: false })
+          .eq('user_id', user.id)
+          .eq('ban_type', 'posting_restriction')
+          .eq('is_active', true);
+        return { is_banned: false, reason: '', expires_at: null };
+      }
+      
+      return { 
+        is_banned: true, 
+        reason: data.reason, 
+        expires_at: data.expires_at 
+      };
+    } catch (error) {
+      console.error('Error getting ban details:', error);
+      return { is_banned: false, reason: '', expires_at: null };
+    }
+  };
+
+  // Check ban status function
+  const checkBanStatus = async () => {
+    if (!user) return;
+    const details = await getBanDetails();
+    setBanInfo(details);
+  };
+
+  // Check user session
+  useEffect(() => {
+    const checkSession = async () => {
+      if (user) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session) {
+          console.log('No valid session, redirecting to login');
+          navigate('/auth');
+        }
+      }
+    };
+    
+    if (user) {
+      checkSession();
+    }
+  }, [user, navigate]);
+
+  // Detect mobile view
   useEffect(() => {
     const checkMobile = () => {
       setIsMobileView(window.innerWidth < 768);
@@ -141,6 +216,21 @@ const Tasks = () => {
   useEffect(() => {
     if (!loading && !user) navigate('/auth');
   }, [user, loading, navigate]);
+
+  // FIX 1: Ban Status Check - Should refresh periodically
+  useEffect(() => {
+    if (!user) return;
+    
+    // Initial check
+    checkBanStatus();
+    
+    // Check ban status every minute
+    const interval = setInterval(() => {
+      checkBanStatus();
+    }, 60000); // 60 seconds
+    
+    return () => clearInterval(interval);
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -268,11 +358,38 @@ const Tasks = () => {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
-  // Handle create task with category support
+  // FIX 2: Create Task Handler - Ban check should be async and await
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // AWAIT the ban check before proceeding
+    const currentBanStatus = await getBanDetails();
+    
+    if (currentBanStatus.is_banned) {
+      let message = `You are banned from posting tasks: ${currentBanStatus.reason}`;
+      if (currentBanStatus.expires_at) {
+        const expiresDate = new Date(currentBanStatus.expires_at);
+        const timeLeft = formatDistanceToNow(expiresDate, { addSuffix: false });
+        message += `\nBan expires in ${timeLeft}`;
+      } else {
+        message += "\nThis is a permanent ban.";
+      }
+      
+      toast({
+        title: "Posting Restricted",
+        description: message,
+        variant: "destructive",
+        duration: 10000
+      });
+      return;
+    }
+    
     if (!userLocation) {
-      toast({ title: "Location needed", description: "Please allow location access first", variant: "destructive" });
+      toast({ 
+        title: "Location needed", 
+        description: "Please allow location access first", 
+        variant: "destructive" 
+      });
       return;
     }
 
@@ -300,6 +417,8 @@ const Tasks = () => {
 
       toast({ title: "Task posted!", description: "Live in your area" });
       setDialogOpen(false);
+      // Reset form
+      e.currentTarget.reset();
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
@@ -325,6 +444,73 @@ const Tasks = () => {
       fetchTasks();
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  // FIX 4: Report Handler - Better error handling
+  const handleReportTask = async () => {
+    if (!taskToReport || !reportReason.trim() || !user) {
+      toast({
+        title: "Missing information",
+        description: "Please provide a reason for reporting.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsReporting(true);
+    try {
+      const reportData = {
+        task_id: taskToReport.id,
+        reporter_id: user.id,
+        reported_user_id: taskToReport.creator_id,
+        reason: reportReason.trim(),
+        status: 'pending' as const,
+        severity: 'medium' as const
+      };
+
+      const { error } = await supabase
+        .from('task_reports')
+        .insert(reportData);
+
+      if (error) {
+        console.error('Report submission error:', error);
+        
+        // Check for duplicate report
+        if (error.code === '23505') {
+          toast({
+            title: "Already Reported",
+            description: "You've already reported this task.",
+            variant: "destructive"
+          });
+        } else {
+          toast({
+            title: "Submission Failed",
+            description: error.message || "Could not submit report.",
+            variant: "destructive"
+          });
+        }
+        return;
+      }
+
+      toast({
+        title: "✓ Report Submitted",
+        description: "Thank you for helping keep the community safe.",
+      });
+      
+      setReportDialogOpen(false);
+      setTaskToReport(null);
+      setReportReason('');
+      
+    } catch (error: any) {
+      console.error('Unexpected error:', error);
+      toast({
+        title: "Unexpected Error",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsReporting(false);
     }
   };
 
@@ -390,47 +576,53 @@ const Tasks = () => {
     }
   };
 
-  // OPTIMIZED: Prevents duplicate friendships + direct messaging
+  // FIX 3: Message User - Better duplicate handling
   const handleMessageUser = async (userId: string) => {
     if (!user || userId === user.id) return;
 
     try {
+      // Check for existing friendship in BOTH directions
       const { data: existingFriendship, error: checkError } = await supabase
         .from('friendships')
         .select('id, status')
         .or(`and(user_id.eq.${user.id},friend_id.eq.${userId}),and(user_id.eq.${userId},friend_id.eq.${user.id})`)
         .maybeSingle();
 
-      if (checkError && checkError.code !== 'PGRST116') throw checkError;
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
 
       if (existingFriendship) {
-        // Already friends → go straight to chat
+        // Friendship exists, go to messages
         navigate('/messages', { state: { selectedUserId: userId } });
         return;
       }
 
-      // Create friendship (auto-accept for task flow)
+      // Create new friendship with both directions to prevent race conditions
       const { error: insertError } = await supabase
         .from('friendships')
-        .insert({
-          user_id: user.id,
-          friend_id: userId,
-          status: 'accepted',
-        });
+        .upsert(
+          [
+            {
+              user_id: user.id,
+              friend_id: userId,
+              status: 'accepted',
+            }
+          ],
+          { 
+            onConflict: 'user_id,friend_id',
+            ignoreDuplicates: true 
+          }
+        );
 
-      if (insertError) {
-        if (insertError.code === '23505') {
-          // Duplicate — likely race condition, safe to ignore
-          console.log('Friendship already created elsewhere');
-        } else {
-          throw insertError;
-        }
-      } else {
-        toast({
-          title: "Connected!",
-          description: "You can now message this user",
-        });
+      if (insertError && insertError.code !== '23505') {
+        throw insertError;
       }
+
+      toast({
+        title: "Connected!",
+        description: "You can now message this user",
+      });
 
       navigate('/messages', { state: { selectedUserId: userId } });
     } catch (error: any) {
@@ -543,6 +735,37 @@ const Tasks = () => {
       ? `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${task.location_lat},${task.location_lng}&travelmode=walking`
       : `https://www.google.com/maps/search/?api=1&query=${task.location_lat},${task.location_lng}`;
     window.open(url, '_blank');
+  };
+
+  // Ban Status Checker Component
+  const BanStatusChecker = () => {
+    useEffect(() => {
+      const interval = setInterval(() => {
+        checkBanStatus();
+      }, 60000);
+      return () => clearInterval(interval);
+    }, []);
+
+    if (!banInfo.is_banned) return null;
+
+    return (
+      <Card className="mb-4 sm:mb-6 border-red-200 bg-red-50">
+        <CardContent className="py-3 sm:py-4 flex items-center gap-3">
+          <Ban className="h-4 w-4 sm:h-5 sm:w-5 text-red-600 flex-shrink-0" />
+          <div>
+            <p className="text-xs sm:text-sm font-medium text-red-800">
+              You are banned from posting tasks
+            </p>
+            <p className="text-xs text-red-600 mt-0.5">
+              Reason: {banInfo.reason}
+              {banInfo.expires_at && (
+                <> • Expires: {formatDistanceToNow(new Date(banInfo.expires_at), { addSuffix: true })}</>
+              )}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   };
 
   if (loading) return (
@@ -705,6 +928,7 @@ const Tasks = () => {
             </CardContent>
           </Card>
         )}
+        <BanStatusChecker />
 
         {/* Mobile-Adaptive Category Filter Section */}
         <div className="mb-4 sm:mb-6">
@@ -887,6 +1111,18 @@ const Tasks = () => {
                       )}
 
                       <div className="pt-3 border-t space-y-2">
+                        {/* Report Button - Always visible for non-creators */}
+                        {task.creator_id !== user.id && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => { setTaskToReport(task); setReportDialogOpen(true); }} 
+                            className="w-full text-xs sm:text-sm h-8 sm:h-9 border-red-200 text-red-600 hover:bg-red-50"
+                          >
+                            <Flag className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" /> Report Task
+                          </Button>
+                        )}
+
                         {task.creator_id === user.id && task.status === 'open' && (
                           <Button variant="destructive" size="sm" onClick={() => { setTaskToDelete(task); setDeleteDialogOpen(true); }} className="w-full text-xs sm:text-sm h-8 sm:h-9">
                             <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" /> Delete Task
@@ -1041,6 +1277,44 @@ const Tasks = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteTask} className="bg-red-600 hover:bg-red-700">
               Delete Task
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Report Dialog */}
+      <AlertDialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Report Inappropriate Task</AlertDialogTitle>
+            <AlertDialogDescription>
+              Please describe why you're reporting this task. Reports are anonymous and will be reviewed by our moderators.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="e.g., Spam, inappropriate content, fake task, suspicious activity..."
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              className="min-h-32"
+              maxLength={500}
+            />
+            <p className="text-xs text-gray-500 mt-2">
+              Please be specific. Your report helps keep the community safe.
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setReportDialogOpen(false);
+              setReportReason('');
+              setTaskToReport(null);
+            }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleReportTask} 
+              disabled={!reportReason.trim() || isReporting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isReporting ? 'Submitting...' : 'Submit Report'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
