@@ -450,7 +450,7 @@ const Dashboard = () => {
             <div className="relative flex items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 truncate">
-                  Welcome back,
+                  Welcome,
                 </h2>
                 <p className="text-lg sm:text-xl lg:text-2xl font-bold text-[#2ec2b3] truncate h-[2em] flex items-center">
                   {animatedGreeting}
