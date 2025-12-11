@@ -354,7 +354,7 @@ const Auth = () => {
       <Card className="w-full max-w-md shadow-medium">
         <CardHeader>
           <CardTitle className="text-2xl text-center bg-gradient-hero bg-clip-text text-transparent">
-            Community Match
+            CommUnity
           </CardTitle>
           <CardDescription className="text-center">
             Create an account or log in
